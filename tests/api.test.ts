@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import { createApp } from '../server/app.ts';
+import {
+  extractGeminiErrorInfo,
+  mapChatErrorToResponse,
+} from '../server/geminiService.ts';
 import { buildDemoAirQuality, DEFAULT_SAMPLE_CITY } from '../src/shared/aqi.ts';
 
 async function withServer(
@@ -147,4 +151,30 @@ test('AI rate limiter returns 429 after burst exceeds 20 requests', async () => 
     }
     assert.equal(hit429, true);
   });
+});
+
+test('Gemini error mapping classifies status codes and SDK messages accurately', () => {
+  const quotaErr = Object.assign(new Error('RESOURCE_EXHAUSTED'), { status: 429 });
+  assert.equal(extractGeminiErrorInfo(quotaErr).isQuotaError, true);
+  assert.equal(mapChatErrorToResponse(quotaErr).status, 429);
+
+  const auth400Err = Object.assign(new Error('API_KEY_INVALID: API key not valid'), {
+    status: 400,
+  });
+  assert.equal(extractGeminiErrorInfo(auth400Err).isAuthError, true);
+  assert.equal(mapChatErrorToResponse(auth400Err).status, 403);
+
+  const notFoundErr = Object.assign(new Error('Model not found'), { status: 404 });
+  assert.equal(extractGeminiErrorInfo(notFoundErr).isNotFound, true);
+  assert.equal(mapChatErrorToResponse(notFoundErr).status, 503);
+
+  const badArgErr = Object.assign(new Error('INVALID_ARGUMENT'), { status: 400 });
+  assert.equal(extractGeminiErrorInfo(badArgErr).isBadRequest, true);
+  assert.equal(mapChatErrorToResponse(badArgErr).status, 400);
+
+  const abortErr = new DOMException('The operation was aborted', 'AbortError');
+  assert.equal(mapChatErrorToResponse(abortErr).status, 504);
+
+  const unknownErr = new Error('Unexpected socket hang up');
+  assert.equal(mapChatErrorToResponse(unknownErr).status, 500);
 });

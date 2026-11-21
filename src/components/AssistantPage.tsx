@@ -119,10 +119,19 @@ export function AssistantPage({
         }),
       });
 
-      const data = (await res.json()) as { reply?: string; error?: string };
+      const rawText = await res.text();
+      let data: { reply?: string; error?: string } = {};
+      try {
+        data = JSON.parse(rawText) as { reply?: string; error?: string };
+      } catch {
+        data = {};
+      }
       if (!res.ok || !data.reply) {
         throw new Error(
-          data.error || 'Unable to get a response from AirWise right now.',
+          data.error ||
+            (res.status === 429
+              ? 'Too many AI requests right now. Please wait ~30 seconds and try again.'
+              : 'Unable to get a response from AirWise right now.'),
         );
       }
 

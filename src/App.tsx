@@ -131,7 +131,7 @@ export default function App() {
     };
   }, [preferences.city, preferences.preferredScale, demoMode, fetchAqi]);
 
-  // Fetch personalized advice whenever verified AQI data or household profile changes
+  // Fetch personalized advice whenever verified AQI data or household profile changes (debounced to protect AI rate limits)
   useEffect(() => {
     if (!aqiData) {
       setAdvice(null);
@@ -143,35 +143,38 @@ export default function App() {
     setAdvice({ ...baseline, source: 'deterministic' });
     setAdviceLoading(true);
 
-    fetch('/api/advice', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ aqiData, preferences }),
-      signal: controller.signal,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Advice request failed');
-        return res.json() as Promise<AdviceRecommendations>;
+    const debounceTimer = setTimeout(() => {
+      fetch('/api/advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ aqiData, preferences }),
+        signal: controller.signal,
       })
-      .then((data) => {
-        if (
-          !controller.signal.aborted &&
-          data &&
-          data.outdoor &&
-          data.indoor &&
-          data.travel
-        ) {
-          setAdvice(data);
-        }
-      })
-      .catch(() => {
-        // Keep verified deterministic baseline on network/rate-limit error
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setAdviceLoading(false);
-      });
+        .then((res) => {
+          if (!res.ok) throw new Error('Advice request failed');
+          return res.json() as Promise<AdviceRecommendations>;
+        })
+        .then((data) => {
+          if (
+            !controller.signal.aborted &&
+            data &&
+            data.outdoor &&
+            data.indoor &&
+            data.travel
+          ) {
+            setAdvice(data);
+          }
+        })
+        .catch(() => {
+          // Keep verified deterministic baseline on network/rate-limit error
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setAdviceLoading(false);
+        });
+    }, 600);
 
     return () => {
+      clearTimeout(debounceTimer);
       controller.abort();
     };
   }, [
