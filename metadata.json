@@ -1,6 +1,6 @@
 {
   "name": "AirWise – Urban Air Quality Assistant",
   "description": "Breathe better, live smarter. A GenAI-powered urban air quality awareness and sustainable living assistant.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["geolocation", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

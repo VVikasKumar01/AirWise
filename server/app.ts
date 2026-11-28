@@ -11,11 +11,13 @@ import {
   generateChatReply,
   generatePersonalizedAdvice,
   getGeminiClient,
+  transcribeAudio,
 } from './geminiService.ts';
 import { createRateLimiter, securityHeaders } from './security.ts';
 import {
   parseCoordinates,
   sanitizeAirQualityData,
+  sanitizeAudioPayload,
   sanitizeChatHistory,
   sanitizeMultilineText,
   sanitizePlainText,
@@ -34,7 +36,6 @@ export function createApp(options: CreateAppOptions = {}) {
 
   app.disable('x-powered-by');
   app.use(securityHeaders);
-  app.use(express.json({ limit: '100kb' }));
 
   const standardLimiter = enableRateLimit
     ? createRateLimiter({
@@ -53,6 +54,33 @@ export function createApp(options: CreateAppOptions = {}) {
           'You are sending AI requests quickly. Please wait a moment before trying again.',
       })
     : (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+
+  app.post(
+    '/api/transcribe',
+    aiLimiter,
+    express.json({ limit: '2.5mb' }),
+    async (req, res) => {
+      const validated = sanitizeAudioPayload(req.body);
+      if (!validated.ok) {
+        res.status(400).json({ error: validated.error });
+        return;
+      }
+
+      const result = await transcribeAudio({
+        audioBase64: validated.audioBase64,
+        mimeType: validated.mimeType,
+      });
+
+      if ('error' in result) {
+        res.status(result.status).json({ error: result.error });
+        return;
+      }
+
+      res.json(result);
+    },
+  );
+
+  app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, geminiConfigured: Boolean(getGeminiClient()) });
@@ -171,7 +199,7 @@ export function createApp(options: CreateAppOptions = {}) {
     res.json(result);
   });
 
-  // Safe JSON parse error handler
+  // Safe JSON parse & payload limit error handler
   app.use(
     (
       err: unknown,
@@ -179,6 +207,16 @@ export function createApp(options: CreateAppOptions = {}) {
       res: express.Response,
       next: express.NextFunction,
     ) => {
+      if (
+        err &&
+        typeof err === 'object' &&
+        (err as { type?: string }).type === 'entity.too.large'
+      ) {
+        res.status(413).json({
+          error: 'Request payload is too large. Please keep voice clips under 45 seconds.',
+        });
+        return;
+      }
       if (err instanceof SyntaxError && 'body' in err) {
         res.status(400).json({ error: 'Invalid JSON request body.' });
         return;

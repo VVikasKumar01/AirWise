@@ -80,12 +80,19 @@ export interface AdviceRecommendations {
   notice?: string;
 }
 
+export interface GroundedPlace {
+  title: string;
+  uri: string;
+  snippet?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   timestamp: string;
   error?: boolean;
+  places?: GroundedPlace[];
 }
 
 export type HabitPeriod = 'morning' | 'afternoon' | 'evening';

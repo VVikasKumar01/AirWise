@@ -62,9 +62,9 @@ export const COMMUTE_OPTIONS: Array<{ value: CommuteMethod; label: string }> = [
 
 export const SUGGESTED_QUESTIONS: readonly string[] = [
   'Is it safe for kids to play outside right now?',
-  'Which indoor air hacks and plants work best today?',
+  'Where are clean-air parks or indoor spots nearby?',
   'What is the lowest-emission commute option today?',
-  'Why does today’s AQI level affect my health?',
+  'How can I improve indoor air right now?',
 ];
 
 export const LIMITS = {

@@ -3,8 +3,11 @@ import type { AddressInfo } from 'node:net';
 import test from 'node:test';
 import { createApp } from '../server/app.ts';
 import {
+  cleanChatFormatting,
   extractGeminiErrorInfo,
+  extractGroundedPlaces,
   mapChatErrorToResponse,
+  shouldUseMapsGrounding,
 } from '../server/geminiService.ts';
 import { buildDemoAirQuality, DEFAULT_SAMPLE_CITY } from '../src/shared/aqi.ts';
 
@@ -175,6 +178,103 @@ test('Gemini error mapping classifies status codes and SDK messages accurately',
   const abortErr = new DOMException('The operation was aborted', 'AbortError');
   assert.equal(mapChatErrorToResponse(abortErr).status, 504);
 
-  const unknownErr = new Error('Unexpected socket hang up');
+  const fetchTimeoutErr = new TypeError('fetch failed', {
+    cause: { code: 'UND_ERR_CONNECT_TIMEOUT', name: 'ConnectTimeoutError', message: 'Connect Timeout Error' },
+  });
+  assert.equal(extractGeminiErrorInfo(fetchTimeoutErr).isTimeout, true);
+  assert.equal(mapChatErrorToResponse(fetchTimeoutErr).status, 504);
+
+  const fetchResetErr = new TypeError('fetch failed', {
+    cause: { code: 'ECONNRESET', message: 'read ECONNRESET' },
+  });
+  assert.equal(extractGeminiErrorInfo(fetchResetErr).isNetworkError, true);
+  assert.equal(mapChatErrorToResponse(fetchResetErr).status, 503);
+
+  const emptyErr = new Error('Empty response received from Gemini.');
+  assert.equal(mapChatErrorToResponse(emptyErr).status, 503);
+
+  const unknownErr = new Error('Unexpected serialization failure');
   assert.equal(mapChatErrorToResponse(unknownErr).status, 500);
+});
+
+test('cleanChatFormatting removes markdown symbols, headings, and dividers', () => {
+  const messy = `### 1. Indoor Tips
+***
+*   **Run HEPA**: Traps \`PM2.5\` particles.
+• Use *exhaust* fans while cooking.
+---`;
+  const cleaned = cleanChatFormatting(messy);
+  assert.equal(cleaned.includes('#'), false);
+  assert.equal(cleaned.includes('*'), false);
+  assert.equal(cleaned.includes('---'), false);
+  assert.equal(cleaned.includes('`'), false);
+  assert.ok(cleaned.includes('1. Indoor Tips'));
+  assert.ok(cleaned.includes('- Run HEPA: Traps PM2.5 particles.'));
+  assert.ok(cleaned.includes('- Use exhaust fans while cooking.'));
+});
+
+test('Maps grounding intent and place chunk extraction enforce safe URLs', () => {
+  assert.equal(shouldUseMapsGrounding('Where are clean parks nearby?'), true);
+  assert.equal(shouldUseMapsGrounding('What is PM2.5?'), false);
+
+  const places = extractGroundedPlaces([
+    {
+      maps: {
+        uri: 'https://maps.google.com/?cid=123',
+        title: 'Lodhi Garden',
+        placeAnswerSources: {
+          reviewSnippets: [{ content: 'Shaded paths away from traffic.' }],
+        },
+      },
+    },
+    {
+      maps: {
+        uri: 'javascript:alert(1)',
+        title: 'Unsafe Link',
+      },
+    },
+    {
+      maps: {
+        uri: 'https://maps.google.com/?cid=123',
+        title: 'Duplicate Place',
+      },
+    },
+  ]);
+
+  assert.equal(places.length, 1);
+  assert.equal(places[0].title, 'Lodhi Garden');
+  assert.equal(places[0].uri, 'https://maps.google.com/?cid=123');
+  assert.equal(places[0].snippet, 'Shaded paths away from traffic.');
+});
+
+test('Transcribe route enforces audio validation and microphone Permissions-Policy', async () => {
+  await withServer(false, async (baseUrl) => {
+    const healthRes = await fetch(`${baseUrl}/api/health`);
+    assert.ok(
+      (healthRes.headers.get('permissions-policy') || '').includes(
+        'microphone=(self)',
+      ),
+    );
+
+    const badMime = await fetch(`${baseUrl}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audioBase64: 'AAAA', mimeType: 'text/plain' }),
+    });
+    assert.equal(badMime.status, 400);
+
+    const emptyAudio = await fetch(`${baseUrl}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audioBase64: '', mimeType: 'audio/webm' }),
+    });
+    assert.equal(emptyAudio.status, 400);
+
+    const badBase64 = await fetch(`${baseUrl}/api/transcribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audioBase64: '***not-base64***', mimeType: 'audio/webm;codecs=opus' }),
+    });
+    assert.equal(badBase64.status, 400);
+  });
 });

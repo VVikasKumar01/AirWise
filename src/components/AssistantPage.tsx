@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Leaf, Loader2, RefreshCw, RotateCcw } from 'lucide-react';
+import {
+  ArrowUp,
+  ExternalLink,
+  Leaf,
+  Loader2,
+  MapPin,
+  Mic,
+  RefreshCw,
+  RotateCcw,
+  Square,
+} from 'lucide-react';
 import {
   IMAGE_ASSETS,
   LIMITS,
@@ -8,6 +18,7 @@ import {
 import type {
   AirQualityData,
   ChatMessage,
+  GroundedPlace,
   ImpactAction,
   UserPreferences,
 } from '../shared/types.ts';
@@ -20,40 +31,50 @@ interface AssistantPageProps {
   onMessagesChange: (next: ChatMessage[]) => void;
 }
 
+function stripInlineSymbols(segment: string): string {
+  return segment
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,!?:;)]|$)/g, '$1$2')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
+function isSafeExternalUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 function renderFormattedText(text: string) {
   const lines = text.split('\n');
   const blocks: Array<{ type: 'p' | 'ul'; items: string[] }> = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line) continue;
+    if (!line || /^([-*_])\1{2,}$/.test(line)) continue;
 
-    const bulletMatch = line.match(/^[-*•]\s+(.*)$/);
+    const cleanLine = line.replace(/^#{1,6}\s+/, '');
+    const bulletMatch = cleanLine.match(/^[-*•+]\s+(.*)$/);
     if (bulletMatch) {
+      const content = stripInlineSymbols(bulletMatch[1]);
+      if (!content) continue;
       const last = blocks[blocks.length - 1];
       if (last && last.type === 'ul') {
-        last.items.push(bulletMatch[1]);
+        last.items.push(content);
       } else {
-        blocks.push({ type: 'ul', items: [bulletMatch[1]] });
+        blocks.push({ type: 'ul', items: [content] });
       }
     } else {
-      blocks.push({ type: 'p', items: [line] });
+      const content = stripInlineSymbols(cleanLine);
+      if (content) {
+        blocks.push({ type: 'p', items: [content] });
+      }
     }
   }
-
-  const renderInlineBold = (segment: string) => {
-    const parts = segment.split(/(\*\*[^*]+\*\*)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith('**') && part.endsWith('**')) {
-        return (
-          <strong key={idx} className="font-semibold text-[#1F2937]">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-      return <span key={idx}>{part}</span>;
-    });
-  };
 
   return (
     <div className="space-y-2 text-sm leading-relaxed text-[#1F2937]">
@@ -61,15 +82,46 @@ function renderFormattedText(text: string) {
         block.type === 'ul' ? (
           <ul key={bIdx} className="list-disc pl-5 space-y-1">
             {block.items.map((item, iIdx) => (
-              <li key={iIdx}>{renderInlineBold(item)}</li>
+              <li key={iIdx}>{item}</li>
             ))}
           </ul>
         ) : (
-          <p key={bIdx}>{renderInlineBold(block.items[0])}</p>
+          <p key={bIdx}>{block.items[0]}</p>
         ),
       )}
     </div>
   );
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      const commaIdx = result.indexOf(',');
+      if (commaIdx === -1) {
+        reject(new Error('Could not read recorded audio.'));
+        return;
+      }
+      resolve(result.slice(commaIdx + 1));
+    };
+    reader.onerror = () => reject(new Error('Could not read recorded audio.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function pickSupportedAudioMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
+    return undefined;
+  }
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+  ];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
 export function AssistantPage({
@@ -81,8 +133,16 @@ export function AssistantPage({
 }: AssistantPageProps) {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [avatarFailed, setAvatarFailed] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const prefersReducedMotion =
@@ -93,6 +153,167 @@ export function AssistantPage({
     });
   }, [messages, sending]);
 
+  useEffect(() => {
+    return () => {
+      if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      if (mediaRecorderRef.current?.state === 'recording') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // Ignore teardown errors
+        }
+      }
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const stopMicTracks = () => {
+    if (autoStopTimerRef.current) {
+      clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = null;
+    }
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+  };
+
+  const transcribeRecordedBlob = async (blob: Blob, mimeType: string) => {
+    setTranscribing(true);
+    setVoiceNotice(null);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 35000);
+
+    try {
+      const audioBase64 = await blobToBase64(blob);
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ audioBase64, mimeType }),
+      });
+
+      const rawText = await res.text();
+      let data: { text?: string; error?: string } = {};
+      try {
+        data = JSON.parse(rawText) as { text?: string; error?: string };
+      } catch {
+        data = {};
+      }
+
+      if (!res.ok || !data.text) {
+        throw new Error(
+          data.error || 'Could not transcribe that recording. Please try again.',
+        );
+      }
+
+      setInput((prev) => {
+        const prefix = prev.trim();
+        const combined = prefix ? `${prefix} ${data.text}` : data.text || '';
+        return combined.slice(0, LIMITS.MAX_CHAT_MESSAGE_CHARS);
+      });
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (err) {
+      const msg =
+        err instanceof DOMException && err.name === 'AbortError'
+          ? 'Audio transcription took too long. Please try a shorter clip.'
+          : err instanceof Error
+            ? err.message
+            : 'Could not transcribe audio right now.';
+      setVoiceNotice(msg);
+    } finally {
+      clearTimeout(timeout);
+      setTranscribing(false);
+    }
+  };
+
+  const handleToggleRecording = async () => {
+    if (sending || transcribing) return;
+
+    if (recording) {
+      try {
+        mediaRecorderRef.current?.stop();
+      } catch {
+        stopMicTracks();
+        setRecording(false);
+      }
+      return;
+    }
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === 'undefined'
+    ) {
+      setVoiceNotice('Voice recording is not supported in this browser.');
+      return;
+    }
+
+    setVoiceNotice(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const preferredMime = pickSupportedAudioMimeType();
+      const recorder = preferredMime
+        ? new MediaRecorder(stream, { mimeType: preferredMime })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        setRecording(false);
+        const finalMime = recorder.mimeType || preferredMime || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type: finalMime });
+        audioChunksRef.current = [];
+        stopMicTracks();
+
+        if (blob.size < 256) {
+          setVoiceNotice('Recording was too short. Please tap the mic and speak clearly.');
+          return;
+        }
+        void transcribeRecordedBlob(blob, finalMime);
+      };
+
+      recorder.onerror = () => {
+        setRecording(false);
+        stopMicTracks();
+        setVoiceNotice('Microphone recording stopped unexpectedly. Please try again.');
+      };
+
+      recorder.start();
+      setRecording(true);
+      autoStopTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === 'recording') {
+          mediaRecorderRef.current.stop();
+        }
+      }, 40000);
+    } catch (err) {
+      stopMicTracks();
+      setRecording(false);
+      const msg = err instanceof Error ? err.message.toLowerCase() : '';
+      if (msg.includes('permissions policy') || msg.includes('feature policy')) {
+        setVoiceNotice(
+          'Microphone access is blocked in this preview frame. Open in a standalone tab or type your question below.',
+        );
+      } else if (
+        err instanceof DOMException &&
+        (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+      ) {
+        setVoiceNotice(
+          'Microphone permission was denied. Allow mic access in your browser settings to use voice input.',
+        );
+      } else {
+        setVoiceNotice('Could not start microphone recording right now.');
+      }
+    }
+  };
+
   const requestReply = async (
     trimmed: string,
     historyForApi: ChatMessage[],
@@ -100,7 +321,7 @@ export function AssistantPage({
   ) => {
     setSending(true);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 25000);
+    const timeout = setTimeout(() => controller.abort(), 35000);
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -120,9 +341,13 @@ export function AssistantPage({
       });
 
       const rawText = await res.text();
-      let data: { reply?: string; error?: string } = {};
+      let data: { reply?: string; places?: GroundedPlace[]; error?: string } = {};
       try {
-        data = JSON.parse(rawText) as { reply?: string; error?: string };
+        data = JSON.parse(rawText) as {
+          reply?: string;
+          places?: GroundedPlace[];
+          error?: string;
+        };
       } catch {
         data = {};
       }
@@ -135,11 +360,16 @@ export function AssistantPage({
         );
       }
 
+      const validPlaces = Array.isArray(data.places)
+        ? data.places.filter((p) => p && isSafeExternalUrl(p.uri))
+        : [];
+
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
         text: data.reply,
         timestamp: new Date().toISOString(),
+        ...(validPlaces.length > 0 ? { places: validPlaces } : {}),
       };
       onMessagesChange([...baseMessages, aiMsg]);
     } catch (err) {
@@ -311,7 +541,51 @@ export function AssistantPage({
                       </button>
                     </div>
                   ) : (
-                    renderFormattedText(msg.text)
+                    <div className="space-y-3">
+                      {renderFormattedText(msg.text)}
+                      {msg.places && msg.places.length > 0 && (
+                        <div className="pt-2.5 border-t border-[#E5E7EB] space-y-1.5">
+                          <div className="text-xs font-medium text-[#4B5563]">
+                            Nearby places on Google Maps
+                          </div>
+                          <ul className="space-y-1.5">
+                            {msg.places
+                              .filter((place) => isSafeExternalUrl(place.uri))
+                              .map((place) => (
+                                <li key={place.uri}>
+                                  <a
+                                    href={place.uri}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="group flex items-start justify-between gap-2 rounded-xl border border-[#E5E7EB] bg-[#F8FAF9] hover:border-[#2E7D62] hover:bg-[#EEF6F2] px-3 py-2 text-xs transition-colors"
+                                  >
+                                    <span className="flex items-start gap-2 min-w-0">
+                                      <MapPin
+                                        className="w-3.5 h-3.5 text-[#2E7D62] shrink-0 mt-0.5"
+                                        aria-hidden="true"
+                                      />
+                                      <span className="min-w-0">
+                                        <span className="font-medium text-[#1F2937] block truncate">
+                                          {place.title}
+                                        </span>
+                                        {place.snippet && (
+                                          <span className="text-[#4B5563] block line-clamp-2 mt-0.5">
+                                            {place.snippet}
+                                          </span>
+                                        )}
+                                      </span>
+                                    </span>
+                                    <ExternalLink
+                                      className="w-3.5 h-3.5 text-[#4B5563] group-hover:text-[#2E7D62] shrink-0 mt-0.5"
+                                      aria-hidden="true"
+                                    />
+                                  </a>
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -339,20 +613,76 @@ export function AssistantPage({
         }}
         className="p-3 sm:p-4 border-t border-[#E5E7EB] bg-white space-y-1.5"
       >
+        {(recording || transcribing || voiceNotice) && (
+          <div
+            role={voiceNotice ? 'alert' : 'status'}
+            aria-live="polite"
+            className={`text-xs px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 ${
+              voiceNotice
+                ? 'bg-[#FFF3ED] text-[#9A3412] border border-[#F7CDB9]'
+                : 'bg-[#EEF6F2] text-[#23634D] border border-[#CFE4DA]'
+            }`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {recording && (
+                <span className="w-2 h-2 rounded-full bg-[#DC2626] shrink-0" />
+              )}
+              {transcribing && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              )}
+              <span>
+                {recording
+                  ? 'Listening… tap the stop button when finished.'
+                  : transcribing
+                    ? 'Transcribing your voice question…'
+                    : voiceNotice}
+              </span>
+            </span>
+            {voiceNotice && (
+              <button
+                type="button"
+                onClick={() => setVoiceNotice(null)}
+                className="font-medium underline shrink-0"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 rounded-2xl border border-[#E5E7EB] focus-within:border-[#2E7D62] bg-[#F8FAF9] focus-within:bg-white px-3 py-1.5 transition-colors">
           <input
+            ref={inputRef}
             type="text"
             value={input}
             maxLength={LIMITS.MAX_CHAT_MESSAGE_CHARS}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question about today’s air…"
+            placeholder="Ask or speak a question about today’s air…"
             aria-label="Ask AirWise a question"
-            disabled={sending}
+            disabled={sending || recording || transcribing}
             className="flex-1 min-h-[44px] bg-transparent text-sm text-[#1F2937] placeholder:text-[#6B7280] focus:outline-none px-1"
           />
           <button
+            type="button"
+            onClick={handleToggleRecording}
+            disabled={sending || transcribing}
+            aria-label={recording ? 'Stop voice recording' : 'Speak your question'}
+            title={recording ? 'Stop recording' : 'Speak your question'}
+            className={`min-h-[44px] min-w-[44px] rounded-xl flex items-center justify-center border transition-colors shrink-0 disabled:opacity-40 ${
+              recording
+                ? 'bg-[#FFF3ED] border-[#F7CDB9] text-[#B91C1C] hover:bg-[#FEE2E2]'
+                : 'bg-white border-[#E5E7EB] text-[#4B5563] hover:text-[#2E7D62] hover:border-[#2E7D62]'
+            }`}
+          >
+            {recording ? (
+              <Square className="w-4 h-4 fill-current" />
+            ) : (
+              <Mic className="w-4 h-4" />
+            )}
+          </button>
+          <button
             type="submit"
-            disabled={!input.trim() || sending}
+            disabled={!input.trim() || sending || recording || transcribing}
             aria-label="Send message"
             className="min-h-[44px] min-w-[44px] rounded-xl bg-[#2E7D62] text-white flex items-center justify-center hover:bg-[#24654F] disabled:opacity-40 transition-colors shrink-0"
           >

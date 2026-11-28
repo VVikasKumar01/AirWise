@@ -10,7 +10,7 @@ export function securityHeaders(
   res.setHeader('X-DNS-Prefetch-Control', 'off');
   res.setHeader(
     'Permissions-Policy',
-    'camera=(), microphone=(), payment=(), usb=()',
+    'camera=(), microphone=(self), payment=(), usb=()',
   );
   // Allow iframe embedding in AI Studio preview while blocking MIME sniffing
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');

@@ -243,3 +243,64 @@ export function sanitizeRecentActions(raw: unknown): string[] {
     .map((item) => sanitizePlainText(item, LIMITS.MAX_ACTION_TEXT_CHARS))
     .filter((s) => s.length > 0);
 }
+
+export function isSafeHttpUrl(raw: unknown): raw is string {
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+const ALLOWED_AUDIO_MIME_TYPES = new Set([
+  'audio/webm',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/wave',
+  'audio/x-wav',
+  'audio/ogg',
+  'audio/aac',
+]);
+
+const MAX_AUDIO_BASE64_CHARS = 2_400_000;
+
+export function sanitizeAudioPayload(
+  raw: unknown,
+):
+  | { ok: true; audioBase64: string; mimeType: string }
+  | { ok: false; error: string } {
+  if (!raw || typeof raw !== 'object') {
+    return { ok: false, error: 'Audio payload is required.' };
+  }
+  const body = raw as Record<string, unknown>;
+  const rawMime = typeof body.mimeType === 'string' ? body.mimeType : '';
+  const baseMime = rawMime.split(';')[0].trim().toLowerCase();
+  if (!ALLOWED_AUDIO_MIME_TYPES.has(baseMime)) {
+    return {
+      ok: false,
+      error: 'Unsupported audio format. Please record with a standard microphone format.',
+    };
+  }
+
+  const rawData = typeof body.audioBase64 === 'string' ? body.audioBase64.trim() : '';
+  if (!rawData) {
+    return { ok: false, error: 'Recorded audio is empty.' };
+  }
+  if (rawData.length > MAX_AUDIO_BASE64_CHARS) {
+    return {
+      ok: false,
+      error: 'Audio clip is too long. Please keep voice questions under 45 seconds.',
+    };
+  }
+  if (!/^[A-Za-z0-9+/=]+$/.test(rawData)) {
+    return { ok: false, error: 'Invalid audio data encoding.' };
+  }
+
+  return { ok: true, audioBase64: rawData, mimeType: baseMime };
+}

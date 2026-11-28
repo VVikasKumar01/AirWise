@@ -126,13 +126,18 @@ export function LocationModal({
       },
       (err) => {
         setLocating(false);
-        if (err.code === err.PERMISSION_DENIED) {
+        const msgLower = (err.message || '').toLowerCase();
+        if (msgLower.includes('permissions policy') || msgLower.includes('feature policy')) {
           setGeoError(
-            'Location permission was denied. You can search or choose a city below.',
+            'Location access is blocked by the preview frame. Open the app in a standalone tab or search and choose your city below.',
+          );
+        } else if (err.code === err.PERMISSION_DENIED) {
+          setGeoError(
+            'Location permission was denied in your browser or device settings. Allow location access for this site to auto-detect, or search and choose a city below.',
           );
         } else {
           setGeoError(
-            'Could not determine your location right now. Please choose a city below.',
+            'Could not determine your location right now. Please search or choose a city below.',
           );
         }
       },
