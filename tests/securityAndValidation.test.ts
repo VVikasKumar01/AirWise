@@ -49,6 +49,9 @@ test('parseCoordinates enforces valid geographic bounds', () => {
   assert.equal(parseCoordinates('91', '0').ok, false);
   assert.equal(parseCoordinates('0', '-181').ok, false);
   assert.equal(parseCoordinates('NaN', '10').ok, false);
+  assert.equal(parseCoordinates('', '').ok, false);
+  assert.equal(parseCoordinates('   ', '77.2').ok, false);
+  assert.equal(parseCoordinates(null, 10).ok, false);
 });
 
 test('validateAqiQuery validates coordinates, scale, demo flag, and city fallback', () => {
@@ -155,6 +158,18 @@ test('createRateLimiter blocks requests exceeding window quota with 429', () => 
   assert.equal(thirdRes.statusCode, 429);
   assert.ok(Number(thirdRes.headers['Retry-After']) >= 1);
   assert.equal(thirdRes.headers['X-RateLimit-Remaining'], '0');
+
+  // Forged X-Forwarded-For header cannot bypass rate limit
+  const spoofedReq = {
+    headers: { 'x-forwarded-for': '203.0.113.99' },
+    ip: '127.0.0.1',
+  } as never;
+  const spoofedRes = makeMockRes();
+  limiter(spoofedReq, spoofedRes as never, () => {
+    nextCalls += 1;
+  });
+  assert.equal(nextCalls, 2);
+  assert.equal(spoofedRes.statusCode, 429);
 });
 
 test('sanitizePreferences supports expanded profiles and normalizes legacy children_elderly', () => {

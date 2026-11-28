@@ -44,10 +44,26 @@ export function loadPreferences(): UserPreferences {
     const raw = localStorage.getItem(KEYS.PREFS);
     if (!raw) return DEFAULT_PREFERENCES;
     const parsed = JSON.parse(raw) as Partial<UserPreferences>;
+    const rawCity = parsed.city;
+    const validCity =
+      rawCity &&
+      typeof rawCity.name === 'string' &&
+      typeof rawCity.latitude === 'number' &&
+      Number.isFinite(rawCity.latitude) &&
+      typeof rawCity.longitude === 'number' &&
+      Number.isFinite(rawCity.longitude)
+        ? rawCity
+        : DEFAULT_SAMPLE_CITY;
     return {
-      city: parsed.city || DEFAULT_SAMPLE_CITY,
+      city: validCity,
       planningFor: normalizePlanningGroup(parsed.planningFor),
-      commuteMethod: parsed.commuteMethod || 'mixed',
+      commuteMethod:
+        parsed.commuteMethod === 'walk_cycle' ||
+        parsed.commuteMethod === 'public_transport' ||
+        parsed.commuteMethod === 'private_vehicle' ||
+        parsed.commuteMethod === 'mixed'
+          ? parsed.commuteMethod
+          : 'mixed',
       preferredScale: parsed.preferredScale === 'us' ? 'us' : 'india',
       onboardingCompleted: Boolean(parsed.onboardingCompleted),
     };
@@ -106,7 +122,15 @@ export function loadImpactActions(): ImpactAction[] {
     const raw = localStorage.getItem(KEYS.IMPACT_ACTIONS);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ImpactAction[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is ImpactAction =>
+        Boolean(item) &&
+        typeof item.id === 'string' &&
+        typeof item.description === 'string' &&
+        typeof item.co2AvoidedKg === 'number' &&
+        Number.isFinite(item.co2AvoidedKg),
+    );
   } catch {
     return [];
   }
@@ -120,22 +144,33 @@ export function saveImpactActions(actions: ImpactAction[]): void {
   }
 }
 
+function sanitizeFactor(value: unknown, fallback: number): number {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : fallback;
+}
+
 export function loadEmissionFactors(): EmissionFactors {
   try {
     const raw = localStorage.getItem(KEYS.EMISSION_FACTORS);
     if (!raw) return DEFAULT_EMISSION_FACTORS;
     const parsed = JSON.parse(raw) as Partial<EmissionFactors>;
     return {
-      privateCarGPerKm: Number(parsed.privateCarGPerKm) || DEFAULT_EMISSION_FACTORS.privateCarGPerKm,
-      twoWheelerGPerKm: Number(parsed.twoWheelerGPerKm) || DEFAULT_EMISSION_FACTORS.twoWheelerGPerKm,
-      publicTransitGPerKm:
-        parsed.publicTransitGPerKm !== undefined
-          ? Number(parsed.publicTransitGPerKm)
-          : DEFAULT_EMISSION_FACTORS.publicTransitGPerKm,
-      carpoolGPerKm:
-        parsed.carpoolGPerKm !== undefined
-          ? Number(parsed.carpoolGPerKm)
-          : DEFAULT_EMISSION_FACTORS.carpoolGPerKm,
+      privateCarGPerKm: sanitizeFactor(
+        parsed.privateCarGPerKm,
+        DEFAULT_EMISSION_FACTORS.privateCarGPerKm,
+      ),
+      twoWheelerGPerKm: sanitizeFactor(
+        parsed.twoWheelerGPerKm,
+        DEFAULT_EMISSION_FACTORS.twoWheelerGPerKm,
+      ),
+      publicTransitGPerKm: sanitizeFactor(
+        parsed.publicTransitGPerKm,
+        DEFAULT_EMISSION_FACTORS.publicTransitGPerKm,
+      ),
+      carpoolGPerKm: sanitizeFactor(
+        parsed.carpoolGPerKm,
+        DEFAULT_EMISSION_FACTORS.carpoolGPerKm,
+      ),
       walkCycleGPerKm: 0,
     };
   } catch {

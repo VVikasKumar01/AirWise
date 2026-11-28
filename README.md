@@ -54,7 +54,7 @@ Every recommendation pairs **what to do** with **why it helps**—so users can m
 ## Tech Stack
 
 - **Frontend:** React 19, TypeScript, Tailwind CSS v4, Lucide React
-- **Backend:** Node.js (v22+), Express (`server.ts`, `server/*`)
+- **Backend:** Node.js (v22.18+), Express (`server.ts`, `server/*`)
 - **AI & Data APIs:** `@google/genai` (server-side Gemini API), Open-Meteo Air Quality & Geocoding APIs, OpenStreetMap Nominatim
 - **Storage & Accessibility:** Browser `localStorage` (no account required), WCAG 2.2 AA focus-trapped modals, `>= 44px` touch targets, `aria-live` status announcements, and `prefers-reduced-motion` support
 
@@ -85,7 +85,7 @@ Every recommendation pairs **what to do** with **why it helps**—so users can m
 ## Getting Started
 
 ### Prerequisites
-- **Node.js 22+**
+- **Node.js 22.18+** (needed to run `node server.ts` directly without flags; on Render, set `NODE_VERSION=22`)
 - A **Google Gemini API key** (for AI-personalized advice and `Ask AirWise` chat; without it, AirWise runs using the verified deterministic safety baseline).
 
 ### Installation & Local Development

@@ -38,12 +38,27 @@ const aqiCache = new TtlCache<CachedAqiEntry>(500, CACHE_TTL_MS);
 const geocodeCache = new TtlCache<CityLocation[]>(300, GEOCODE_TTL_MS);
 const reverseCache = new TtlCache<CityLocation>(300, GEOCODE_TTL_MS);
 
-function normalizeGmtIso(raw?: string): string {
+const pendingAqi = new Map<string, Promise<CachedAqiEntry>>();
+const pendingGeocode = new Map<string, Promise<{ cities: CityLocation[]; notice?: string }>>();
+const pendingReverse = new Map<string, Promise<CityLocation>>();
+
+export function clearAqiServiceCaches(): void {
+  aqiCache.clear();
+  geocodeCache.clear();
+  reverseCache.clear();
+  pendingAqi.clear();
+  pendingGeocode.clear();
+  pendingReverse.clear();
+}
+
+export function normalizeGmtIso(raw?: string): string {
   if (!raw) return new Date().toISOString();
-  const withZ = raw.endsWith('Z')
+  const normalized = raw.endsWith('Z')
     ? raw
-    : `${raw}:00Z`.replace(':00:00Z', ':00Z');
-  const parsed = Date.parse(withZ);
+    : /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)
+      ? `${raw}:00Z`
+      : `${raw}Z`;
+  const parsed = Date.parse(normalized);
   return Number.isNaN(parsed)
     ? new Date().toISOString()
     : new Date(parsed).toISOString();
@@ -143,6 +158,7 @@ export function formatAqiFromRaw(
 export async function fetchLiveAirQuality(
   lat: number,
   lon: number,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<CachedAqiEntry> {
   const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   const cached = aqiCache.get(cacheKey);
@@ -150,28 +166,32 @@ export async function fetchLiveAirQuality(
     return cached;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const existing = pendingAqi.get(cacheKey);
+  if (existing) return existing;
 
-  try {
-    const url = new URL('https://air-quality-api.open-meteo.com/v1/air-quality');
-    url.searchParams.set('latitude', String(lat));
-    url.searchParams.set('longitude', String(lon));
-    url.searchParams.set(
-      'current',
-      'us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone,sulphur_dioxide,carbon_monoxide',
-    );
-    url.searchParams.set(
-      'hourly',
-      'us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone',
-    );
-    url.searchParams.set('forecast_days', '2');
-    url.searchParams.set('timezone', 'GMT');
+  const task = (async (): Promise<CachedAqiEntry> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const response = await fetch(url.toString(), { signal: controller.signal });
-    if (!response.ok) {
-      throw new Error(`Upstream air quality API responded with ${response.status}`);
-    }
+    try {
+      const url = new URL('https://air-quality-api.open-meteo.com/v1/air-quality');
+      url.searchParams.set('latitude', String(lat));
+      url.searchParams.set('longitude', String(lon));
+      url.searchParams.set(
+        'current',
+        'us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone,sulphur_dioxide,carbon_monoxide',
+      );
+      url.searchParams.set(
+        'hourly',
+        'us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone',
+      );
+      url.searchParams.set('forecast_days', '2');
+      url.searchParams.set('timezone', 'GMT');
+
+      const response = await fetchImpl(url.toString(), { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`Upstream air quality API responded with ${response.status}`);
+      }
 
     const json = (await response.json()) as {
       current?: {
@@ -236,15 +256,21 @@ export async function fetchLiveAirQuality(
       dataSource: 'Open-Meteo Air Quality',
     };
 
-    aqiCache.set(cacheKey, entry);
-    return entry;
-  } finally {
-    clearTimeout(timeout);
-  }
+      aqiCache.set(cacheKey, entry);
+      return entry;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  pendingAqi.set(cacheKey, task);
+  void task.finally(() => pendingAqi.delete(cacheKey)).catch(() => {});
+  return task;
 }
 
 export async function searchCities(
   query: string,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<{ cities: CityLocation[]; notice?: string }> {
   const lower = query.toLowerCase();
   const cached = geocodeCache.get(lower);
@@ -252,17 +278,21 @@ export async function searchCities(
     return { cities: cached };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const existing = pendingGeocode.get(lower);
+  if (existing) return existing;
 
-  try {
-    const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
-    url.searchParams.set('name', query);
-    url.searchParams.set('count', '8');
-    url.searchParams.set('language', 'en');
-    url.searchParams.set('format', 'json');
+  const task = (async (): Promise<{ cities: CityLocation[]; notice?: string }> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(url.toString(), { signal: controller.signal });
+    try {
+      const url = new URL('https://geocoding-api.open-meteo.com/v1/search');
+      url.searchParams.set('name', query);
+      url.searchParams.set('count', '8');
+      url.searchParams.set('language', 'en');
+      url.searchParams.set('format', 'json');
+
+      const response = await fetchImpl(url.toString(), { signal: controller.signal });
     if (!response.ok) {
       throw new Error(`Geocoding error ${response.status}`);
     }
@@ -295,36 +325,46 @@ export async function searchCities(
         c.country.toLowerCase().includes(lower) ||
         (c.region && c.region.toLowerCase().includes(lower)),
     );
-    return {
-      cities: filtered,
-      notice: 'City search offline — showing matching saved cities.',
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+      return {
+        cities: filtered,
+        notice: 'City search offline — showing matching saved cities.',
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  pendingGeocode.set(lower, task);
+  void task.finally(() => pendingGeocode.delete(lower)).catch(() => {});
+  return task;
 }
 
 export async function reverseGeocode(
   lat: number,
   lon: number,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<CityLocation> {
   const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
   const cached = reverseCache.get(cacheKey);
   if (cached) return cached;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-  try {
-    const url = new URL('https://nominatim.openstreetmap.org/reverse');
-    url.searchParams.set('lat', String(lat));
-    url.searchParams.set('lon', String(lon));
-    url.searchParams.set('format', 'jsonv2');
-    url.searchParams.set('zoom', '10');
+  const existing = pendingReverse.get(cacheKey);
+  if (existing) return existing;
 
-    const response = await fetch(url.toString(), {
-      headers: { 'User-Agent': 'AirWise-UrbanAirAssistant/1.0' },
-      signal: controller.signal,
-    });
+  const task = (async (): Promise<CityLocation> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const url = new URL('https://nominatim.openstreetmap.org/reverse');
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lon));
+      url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('zoom', '10');
+
+      const response = await fetchImpl(url.toString(), {
+        headers: { 'User-Agent': 'AirWise-UrbanAirAssistant/1.0' },
+        signal: controller.signal,
+      });
 
     if (!response.ok) {
       throw new Error('Reverse geocode failed');
@@ -367,7 +407,12 @@ export async function reverseGeocode(
       latitude: lat,
       longitude: lon,
     };
-  } finally {
-    clearTimeout(timeout);
-  }
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  pendingReverse.set(cacheKey, task);
+  void task.finally(() => pendingReverse.delete(cacheKey)).catch(() => {});
+  return task;
 }

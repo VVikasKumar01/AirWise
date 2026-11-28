@@ -86,7 +86,7 @@ export function AqiArcGauge({
       <div className="relative w-full max-w-[300px] mt-1">
         <svg
           viewBox="0 0 300 152"
-          className="w-full h-auto overflow-visible"
+          className="w-full h-auto overflow-visible pt-[17px]"
           role="img"
           aria-label={`Air Quality Index ${aqi}, ${categoryLabel}`}
         >

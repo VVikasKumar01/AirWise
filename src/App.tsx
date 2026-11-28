@@ -132,6 +132,7 @@ export default function App() {
   }, [preferences.city, preferences.preferredScale, demoMode, fetchAqi]);
 
   // Fetch personalized advice whenever verified AQI data or household profile changes (debounced to protect AI rate limits)
+  const { planningFor, commuteMethod } = preferences;
   useEffect(() => {
     if (!aqiData) {
       setAdvice(null);
@@ -139,7 +140,14 @@ export default function App() {
     }
 
     const controller = new AbortController();
-    const baseline = buildBaselineAdvice(aqiData, preferences);
+    const profileSnapshot: UserPreferences = {
+      city: aqiData.city,
+      planningFor,
+      commuteMethod,
+      preferredScale: aqiData.scale,
+      onboardingCompleted: true,
+    };
+    const baseline = buildBaselineAdvice(aqiData, profileSnapshot);
     setAdvice({ ...baseline, source: 'deterministic' });
     setAdviceLoading(true);
 
@@ -147,7 +155,7 @@ export default function App() {
       fetch('/api/advice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aqiData, preferences }),
+        body: JSON.stringify({ aqiData, preferences: profileSnapshot }),
         signal: controller.signal,
       })
         .then((res) => {
@@ -177,11 +185,7 @@ export default function App() {
       clearTimeout(debounceTimer);
       controller.abort();
     };
-  }, [
-    aqiData,
-    preferences.planningFor,
-    preferences.commuteMethod,
-  ]);
+  }, [aqiData, planningFor, commuteMethod]);
 
   // Check if local calendar day changed while app was open
   useEffect(() => {
@@ -200,98 +204,109 @@ export default function App() {
     };
   }, [activeDateKey]);
 
-  const handleUpdatePreferences = (next: UserPreferences) => {
+  const handleUpdatePreferences = useCallback((next: UserPreferences) => {
     setPreferences(next);
     savePreferences(next);
-  };
+  }, []);
 
-  const handleSelectCity = (city: CityLocation) => {
-    const next = { ...preferences, city };
-    handleUpdatePreferences(next);
-  };
+  const handleSelectCity = useCallback((city: CityLocation) => {
+    setPreferences((prev) => {
+      const next = { ...prev, city };
+      savePreferences(next);
+      return next;
+    });
+  }, []);
 
-  const handleChangeScale = (scale: AqiScale) => {
-    if (scale === preferences.preferredScale) return;
-    handleUpdatePreferences({ ...preferences, preferredScale: scale });
-  };
+  const handleChangeScale = useCallback((scale: AqiScale) => {
+    setPreferences((prev) => {
+      if (scale === prev.preferredScale) return prev;
+      const next = { ...prev, preferredScale: scale };
+      savePreferences(next);
+      return next;
+    });
+  }, []);
 
-  const handleToggleDemoMode = (enabled: boolean) => {
+  const handleToggleDemoMode = useCallback((enabled: boolean) => {
     setDemoMode(enabled);
     saveDemoMode(enabled);
-  };
+  }, []);
 
-  const handleToggleHabit = (
-    habitId: string,
-    title: string,
-    willComplete: boolean,
-  ) => {
-    const nextIds = willComplete
-      ? Array.from(new Set([...completedHabitIds, habitId]))
-      : completedHabitIds.filter((id) => id !== habitId);
+  const handleToggleHabit = useCallback(
+    (habitId: string, title: string, willComplete: boolean) => {
+      setCompletedHabitIds((prevIds) => {
+        const nextIds = willComplete
+          ? Array.from(new Set([...prevIds, habitId]))
+          : prevIds.filter((id) => id !== habitId);
+        saveDailyHabitIds(nextIds);
+        return nextIds;
+      });
 
-    setCompletedHabitIds(nextIds);
-    saveDailyHabitIds(nextIds);
+      const todayKey = getLocalDateKey();
+      const habitActionId = `habit-${todayKey}-${habitId}`;
 
-    const todayKey = getLocalDateKey();
-    const habitActionId = `habit-${todayKey}-${habitId}`;
-
-    if (willComplete) {
-      const exists = impactActions.some((a) => a.id === habitActionId);
-      if (!exists) {
-        const nextActions: ImpactAction[] = [
-          {
-            id: habitActionId,
-            description: title,
-            type: 'habit',
-            co2AvoidedKg: 0,
-            timestamp: new Date().toISOString(),
-          },
-          ...impactActions,
-        ];
-        setImpactActions(nextActions);
+      setImpactActions((prevActions) => {
+        if (willComplete) {
+          if (prevActions.some((a) => a.id === habitActionId)) {
+            return prevActions;
+          }
+          const nextActions: ImpactAction[] = [
+            {
+              id: habitActionId,
+              description: title,
+              type: 'habit',
+              co2AvoidedKg: 0,
+              timestamp: new Date().toISOString(),
+            },
+            ...prevActions,
+          ];
+          saveImpactActions(nextActions);
+          return nextActions;
+        }
+        const nextActions = prevActions.filter((a) => a.id !== habitActionId);
         saveImpactActions(nextActions);
-      }
-    } else {
-      const nextActions = impactActions.filter((a) => a.id !== habitActionId);
-      setImpactActions(nextActions);
-      saveImpactActions(nextActions);
-    }
-  };
+        return nextActions;
+      });
+    },
+    [],
+  );
 
-  const handleAddImpactAction = (action: ImpactAction) => {
-    const next = [action, ...impactActions];
-    setImpactActions(next);
-    saveImpactActions(next);
-  };
+  const handleAddImpactAction = useCallback((action: ImpactAction) => {
+    setImpactActions((prev) => {
+      const next = [action, ...prev];
+      saveImpactActions(next);
+      return next;
+    });
+  }, []);
 
-  const handleRemoveImpactAction = (id: string) => {
-    const next = impactActions.filter((a) => a.id !== id);
-    setImpactActions(next);
-    saveImpactActions(next);
+  const handleRemoveImpactAction = useCallback((id: string) => {
+    setImpactActions((prev) => {
+      const next = prev.filter((a) => a.id !== id);
+      saveImpactActions(next);
+      return next;
+    });
 
     // Sync today's Daily Tips checklist if a today's habit entry is deleted
     const todayPrefix = `habit-${getLocalDateKey()}-`;
     if (id.startsWith(todayPrefix)) {
       const removedHabitId = id.slice(todayPrefix.length);
-      if (completedHabitIds.includes(removedHabitId)) {
-        const nextHabitIds = completedHabitIds.filter(
-          (hid) => hid !== removedHabitId,
-        );
-        setCompletedHabitIds(nextHabitIds);
+      setCompletedHabitIds((prevHabitIds) => {
+        if (!prevHabitIds.includes(removedHabitId)) return prevHabitIds;
+        const nextHabitIds = prevHabitIds.filter((hid) => hid !== removedHabitId);
         saveDailyHabitIds(nextHabitIds);
-      }
+        return nextHabitIds;
+      });
     }
-  };
+  }, []);
 
-  const handleUpdateFactors = (factors: EmissionFactors) => {
+  const handleUpdateFactors = useCallback((factors: EmissionFactors) => {
     setEmissionFactors(factors);
     saveEmissionFactors(factors);
-  };
+  }, []);
 
-  const handleChatMessagesChange = (next: ChatMessage[]) => {
+  const handleChatMessagesChange = useCallback((next: ChatMessage[]) => {
     setChatMessages(next);
     saveChatHistory(next);
-  };
+  }, []);
 
   const modalIsOpen = locationModalOpen || preferencesModalOpen;
 

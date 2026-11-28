@@ -40,18 +40,18 @@ export function createRateLimiter(options: RateLimiterOptions) {
   ): void {
     const now = Date.now();
 
-    if (buckets.size > maxBuckets) {
+    if (buckets.size >= maxBuckets) {
       for (const [k, b] of buckets.entries()) {
         if (now > b.resetAtMs) buckets.delete(k);
       }
+      while (buckets.size >= maxBuckets) {
+        const oldestKey = buckets.keys().next().value;
+        if (oldestKey === undefined) break;
+        buckets.delete(oldestKey);
+      }
     }
 
-    const clientIp =
-      (typeof req.headers['x-forwarded-for'] === 'string'
-        ? req.headers['x-forwarded-for'].split(',')[0].trim()
-        : undefined) ||
-      req.ip ||
-      'unknown';
+    const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
 
     const key = `${options.keyPrefix}:${clientIp}`;
     const existing = buckets.get(key);

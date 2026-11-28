@@ -10,7 +10,7 @@ import {
 import {
   generateChatReply,
   generatePersonalizedAdvice,
-  getGeminiClient,
+  isGeminiConfigured,
   transcribeAudio,
 } from './geminiService.ts';
 import { createRateLimiter, securityHeaders } from './security.ts';
@@ -34,6 +34,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const enableRateLimit = options.enableRateLimit !== false;
   const app = express();
 
+  app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.use(securityHeaders);
 
@@ -83,7 +84,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.use(express.json({ limit: '100kb' }));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, geminiConfigured: Boolean(getGeminiClient()) });
+    res.json({ ok: true, geminiConfigured: isGeminiConfigured() });
   });
 
   app.get('/api/cities/search', standardLimiter, async (req, res) => {

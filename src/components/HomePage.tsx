@@ -103,6 +103,57 @@ function CircularIllustIcon({
   );
 }
 
+function AdviceCard({
+  title,
+  icon,
+  active,
+  loading,
+  body,
+  why,
+  skeletonWidths,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  active: boolean;
+  loading: boolean;
+  body?: string;
+  why?: string;
+  skeletonWidths: [string, string];
+}) {
+  return (
+    <article
+      className={`rounded-2xl border p-4 transition-colors ${
+        active
+          ? 'bg-[#EEF6F2]/60 border-[#CFE4DA]'
+          : 'bg-[#F8FAF9] border-[#E5E7EB]'
+      }`}
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        {icon}
+        <h3 className="text-sm font-semibold text-[#1F2937]">{title}</h3>
+      </div>
+      {loading ? (
+        <div className="space-y-1.5 py-1" aria-label={`Loading ${title.toLowerCase()} advice`}>
+          <div className={`h-3 bg-[#E5E7EB] rounded animate-pulse ${skeletonWidths[0]}`} />
+          <div className={`h-3 bg-[#E5E7EB] rounded animate-pulse ${skeletonWidths[1]}`} />
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs sm:text-sm text-[#374151] leading-relaxed">
+            {body}
+          </p>
+          {why && (
+            <p className="pt-2 border-t border-[#E5E7EB]/80 text-xs text-[#4B5563] leading-relaxed">
+              <span className="font-semibold text-[#23634D]">Why it helps:</span>{' '}
+              {why}
+            </p>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function HomePage({
   preferences,
   aqiData,
@@ -155,6 +206,22 @@ export function HomePage({
         },
       ]
     : [];
+
+  const bestHourly =
+    aqiData?.hourly && aqiData.hourly.length > 0
+      ? aqiData.hourly.reduce(
+          (best, cur, idx) =>
+            cur.aqi < best.slot.aqi ? { slot: cur, idx } : best,
+          { slot: aqiData.hourly[0], idx: 0 },
+        )
+      : null;
+  const bestHourlyLabel = bestHourly
+    ? formatHourlyTimeLabel(
+        bestHourly.slot.isoTime,
+        bestHourly.idx,
+        bestHourly.slot.timeLabel,
+      )
+    : '';
 
   const friendlyHeadline = advice?.summary
     ? advice.summary
@@ -544,125 +611,38 @@ export function HomePage({
             {/* Three Today's Advice Cards */}
             <section aria-label="Today's personalized advice" className="space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <article
-                  className={`rounded-2xl border p-4 transition-colors ${
-                    selectedFocus === 'outdoor'
-                      ? 'bg-[#EEF6F2]/60 border-[#CFE4DA]'
-                      : 'bg-[#F8FAF9] border-[#E5E7EB]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Sun className="w-4 h-4 text-[#2E7D62] shrink-0" aria-hidden="true" />
-                    <h3 className="text-sm font-semibold text-[#1F2937]">
-                      Outdoor Activity
-                    </h3>
-                  </div>
-                  {adviceLoading && !advice ? (
-                    <div className="space-y-1.5 py-1" aria-label="Loading outdoor advice">
-                      <div className="h-3 bg-[#E5E7EB] rounded w-full animate-pulse" />
-                      <div className="h-3 bg-[#E5E7EB] rounded w-4/5 animate-pulse" />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs sm:text-sm text-[#374151] leading-relaxed">
-                        {advice?.outdoor}
-                      </p>
-                      {advice?.outdoorWhy && (
-                        <p className="pt-2 border-t border-[#E5E7EB]/80 text-xs text-[#4B5563] leading-relaxed">
-                          <span className="font-semibold text-[#23634D]">
-                            Why it helps:
-                          </span>{' '}
-                          {advice.outdoorWhy}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </article>
-
-                <article
-                  className={`rounded-2xl border p-4 transition-colors ${
-                    selectedFocus === 'indoor'
-                      ? 'bg-[#EEF6F2]/60 border-[#CFE4DA]'
-                      : 'bg-[#F8FAF9] border-[#E5E7EB]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <HomeIcon className="w-4 h-4 text-[#2E7D62] shrink-0" aria-hidden="true" />
-                    <h3 className="text-sm font-semibold text-[#1F2937]">
-                      Indoor Air
-                    </h3>
-                  </div>
-                  {adviceLoading && !advice ? (
-                    <div className="space-y-1.5 py-1" aria-label="Loading indoor advice">
-                      <div className="h-3 bg-[#E5E7EB] rounded w-full animate-pulse" />
-                      <div className="h-3 bg-[#E5E7EB] rounded w-3/4 animate-pulse" />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs sm:text-sm text-[#374151] leading-relaxed">
-                        {advice?.indoor}
-                      </p>
-                      {advice?.indoorWhy && (
-                        <p className="pt-2 border-t border-[#E5E7EB]/80 text-xs text-[#4B5563] leading-relaxed">
-                          <span className="font-semibold text-[#23634D]">
-                            Why it helps:
-                          </span>{' '}
-                          {advice.indoorWhy}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </article>
-
-                <article
-                  className={`rounded-2xl border p-4 transition-colors ${
-                    selectedFocus === 'travel'
-                      ? 'bg-[#EEF6F2]/60 border-[#CFE4DA]'
-                      : 'bg-[#F8FAF9] border-[#E5E7EB]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Bus className="w-4 h-4 text-[#2E7D62] shrink-0" aria-hidden="true" />
-                    <h3 className="text-sm font-semibold text-[#1F2937]">
-                      Travel Choice
-                    </h3>
-                  </div>
-                  {adviceLoading && !advice ? (
-                    <div className="space-y-1.5 py-1" aria-label="Loading travel advice">
-                      <div className="h-3 bg-[#E5E7EB] rounded w-full animate-pulse" />
-                      <div className="h-3 bg-[#E5E7EB] rounded w-5/6 animate-pulse" />
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-xs sm:text-sm text-[#374151] leading-relaxed">
-                        {advice?.travel}
-                      </p>
-                      {advice?.travelWhy && (
-                        <p className="pt-2 border-t border-[#E5E7EB]/80 text-xs text-[#4B5563] leading-relaxed">
-                          <span className="font-semibold text-[#23634D]">
-                            Why it helps:
-                          </span>{' '}
-                          {advice.travelWhy}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </article>
+                <AdviceCard
+                  title="Outdoor Activity"
+                  icon={<Sun className="w-4 h-4 text-[#2E7D62] shrink-0" aria-hidden="true" />}
+                  active={selectedFocus === 'outdoor'}
+                  loading={adviceLoading && !advice}
+                  body={advice?.outdoor}
+                  why={advice?.outdoorWhy}
+                  skeletonWidths={['w-full', 'w-4/5']}
+                />
+                <AdviceCard
+                  title="Indoor Air"
+                  icon={<HomeIcon className="w-4 h-4 text-[#2E7D62] shrink-0" aria-hidden="true" />}
+                  active={selectedFocus === 'indoor'}
+                  loading={adviceLoading && !advice}
+                  body={advice?.indoor}
+                  why={advice?.indoorWhy}
+                  skeletonWidths={['w-full', 'w-3/4']}
+                />
+                <AdviceCard
+                  title="Travel Choice"
+                  icon={<Bus className="w-4 h-4 text-[#2E7D62] shrink-0" aria-hidden="true" />}
+                  active={selectedFocus === 'travel'}
+                  loading={adviceLoading && !advice}
+                  body={advice?.travel}
+                  why={advice?.travelWhy}
+                  skeletonWidths={['w-full', 'w-5/6']}
+                />
               </div>
             </section>
 
             {/* Hourly outlook row */}
-            {aqiData.hourly && aqiData.hourly.length > 0 && (() => {
-              const bestSlot = aqiData.hourly.reduce(
-                (best, cur, idx) => (cur.aqi < best.slot.aqi ? { slot: cur, idx } : best),
-                { slot: aqiData.hourly[0], idx: 0 },
-              );
-              const bestLabel = formatHourlyTimeLabel(
-                bestSlot.slot.isoTime,
-                bestSlot.idx,
-                bestSlot.slot.timeLabel,
-              );
-              return (
+            {aqiData.hourly && aqiData.hourly.length > 0 && bestHourly && (
               <section aria-label="Hourly air quality outlook" className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <button
@@ -678,9 +658,9 @@ export function HomePage({
                     />
                   </button>
                   <span className="text-xs text-[#23634D] font-medium tabular-nums">
-                    {bestSlot.idx === 0
-                      ? `Cleanest right now (AQI ${bestSlot.slot.aqi})`
-                      : `Cleaner window around ${bestLabel} (AQI ${bestSlot.slot.aqi})`}
+                    {bestHourly.idx === 0
+                      ? `Cleanest right now (AQI ${bestHourly.slot.aqi})`
+                      : `Cleaner window around ${bestHourlyLabel} (AQI ${bestHourly.slot.aqi})`}
                   </span>
                 </div>
 
@@ -718,8 +698,7 @@ export function HomePage({
                   </div>
                 )}
               </section>
-              );
-            })()}
+            )}
 
             {/* Pollutants row */}
             <section aria-label="Measured pollutants" className="space-y-3">

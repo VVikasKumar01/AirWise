@@ -411,6 +411,191 @@ export function getSeverityStyle(level: SeverityLevel): {
   }
 }
 
+function getOutdoorBaseline(
+  severityLevel: SeverityLevel,
+  planningFor: UserPreferences['planningFor'],
+  pollutantNote: string,
+): { outdoor: string; outdoorWhy: string } {
+  if (severityLevel <= 2) {
+    switch (planningFor) {
+      case 'young_children':
+        return {
+          outdoor:
+            'Good window for outdoor playground time and sports; keep water handy and stick to grassy parks away from road traffic.',
+          outdoorWhy:
+            'Developing lungs breathe faster per kilogram of body weight, so low AQI parks keep fine-particle inhalation low.',
+        };
+      case 'senior_citizens':
+        return {
+          outdoor:
+            'Comfortable conditions for a morning or evening walk at an easy pace in shaded neighborhood spaces.',
+          outdoorWhy:
+            'Cleaner air reduces airway irritation and cardiovascular strain during light outdoor movement.',
+        };
+      case 'sensitive':
+        return {
+          outdoor:
+            'Normal outdoor walks and gentle activity are fine today while watching for any personal airway discomfort.',
+          outdoorWhy:
+            'Current pollution is below stress thresholds for most people, though pacing helps sensitive airways stay calm.',
+        };
+      case 'working_professional':
+        return {
+          outdoor:
+            'Favorable conditions for a midday stretch walk or outdoor lunch break away from main intersections.',
+          outdoorWhy:
+            'Brief daylight movement boosts focus while low ambient pollution keeps exposure minimal.',
+        };
+      default:
+        return {
+          outdoor:
+            'Conditions are favorable for outdoor walks, family play, and exercise today.',
+          outdoorWhy:
+            'Ambient pollutant levels are low enough that outdoor activity brings full physical benefits without heavy exposure.',
+        };
+    }
+  }
+
+  if (severityLevel === 3) {
+    switch (planningFor) {
+      case 'young_children':
+        return {
+          outdoor:
+            'Keep outdoor play shorter today and shift energetic running or sports indoors or to quieter, tree-lined parks.',
+          outdoorWhy: `Children inhale more ${pollutantNote} when breathing rapidly during active play, irritating developing airways.`,
+        };
+      case 'senior_citizens':
+        return {
+          outdoor:
+            'Take shorter, gentle walks away from busy roads and rest indoors if you notice throat tightness or fatigue.',
+          outdoorWhy: `Moderate ${pollutantNote} can trigger mild airway inflammation and extra heart-lung effort in older adults.`,
+        };
+      case 'sensitive':
+        return {
+          outdoor:
+            'Limit prolonged outdoor exertion today, carry prescribed reliever inhalers if used, and avoid smoky roadside areas.',
+          outdoorWhy: `Even moderate levels of ${pollutantNote} can irritate sensitive bronchial passages during deeper breathing.`,
+        };
+      case 'working_professional':
+        return {
+          outdoor:
+            'Keep outdoor workouts light or move intense gym sessions indoors after work until traffic haze clears.',
+          outdoorWhy: `Heavy breathing during rush-hour exertion draws ${pollutantNote} deeper into the lungs.`,
+        };
+      case 'family':
+        return {
+          outdoor:
+            'Light outdoor errands are fine, but shift intense workouts or long playtimes indoors or to quieter streets.',
+          outdoorWhy: `Lower breathing rates cut the total dose of ${pollutantNote} inhaled by kids and adults alike.`,
+        };
+      default:
+        return {
+          outdoor:
+            'Light outdoor activity is fine, though scaling back long, intense workouts helps reduce exposure.',
+          outdoorWhy: `Slower breathing during lighter movement limits how deeply ${pollutantNote} settles in your airways.`,
+        };
+    }
+  }
+
+  if (severityLevel === 4) {
+    if (planningFor === 'young_children') {
+      return {
+        outdoor:
+          'Move children’s games and sports indoors today and keep outdoor school or errand transitions brief.',
+        outdoorWhy: `Elevated ${pollutantNote} quickly inflames children’s narrower airways when they run and breathe deeply.`,
+      };
+    }
+    if (planningFor === 'senior_citizens') {
+      return {
+        outdoor:
+          'Stay indoors during peak haze and postpone long walks; use a well-fitted N95 mask for essential errands.',
+        outdoorWhy: `High ${pollutantNote} enters the bloodstream via the lungs, increasing respiratory and blood-pressure stress.`,
+      };
+    }
+    return {
+      outdoor:
+        'Outdoor pollution is elevated. Move vigorous exercise indoors and keep outdoor trips brief when practical.',
+      outdoorWhy: `High concentrations of ${pollutantNote} cause airway irritation for healthy adults during prolonged outdoor exposure.`,
+    };
+  }
+
+  return {
+    outdoor:
+      'Air quality is very poor. Stay indoors as much as possible, cancel outdoor exercise, and wear a well-fitted N95/KN95 mask if going out.',
+    outdoorWhy: `Severe ${pollutantNote} levels penetrate deep lung tissue; N95 filtration and indoor shelter sharply reduce particle inhalation.`,
+  };
+}
+
+function getIndoorBaseline(severityLevel: SeverityLevel): {
+  indoor: string;
+  indoorWhy: string;
+} {
+  if (severityLevel <= 2) {
+    return {
+      indoor:
+        'Open windows for cross-ventilation during calmer midday hours, use kitchen exhaust fans while cooking, and keep low-maintenance indoor plants like snake plant or areca palm.',
+      indoorWhy:
+        'Fresh outdoor air dilutes indoor CO₂ and cooking fumes, while damp dusting and greenery keep living spaces comfortable.',
+    };
+  }
+  if (severityLevel === 3) {
+    return {
+      indoor:
+        'Run a HEPA air purifier in main rooms if available, skip incense or candles, and crack a window with the kitchen exhaust fan on while cooking.',
+      indoorWhy:
+        'HEPA filters capture fine PM2.5 particles without sealing in cooking smoke or indoor gases.',
+    };
+  }
+  return {
+    indoor:
+      'Keep roadside windows shut during peak haze, run a HEPA purifier on medium/auto, damp-mop floors instead of dry sweeping, and vent briefly with exhaust fans while cooking.',
+    indoorWhy:
+      'Damp cleaning traps settled dust without re-aerosolizing it, while HEPA filtration removes outdoor PM2.5 that seeps indoors.',
+  };
+}
+
+function getTravelBaseline(
+  severityLevel: SeverityLevel,
+  commuteMethod: UserPreferences['commuteMethod'],
+): { travel: string; travelWhy: string } {
+  const isElevated = severityLevel >= 3;
+  switch (commuteMethod) {
+    case 'walk_cycle':
+      return {
+        travel: isElevated
+          ? 'Choose quieter side streets or park paths away from main road exhaust, or switch to metro/bus for longer stretches today.'
+          : 'Walking and cycling are zero-emission choices today—stick to greener neighborhood streets away from heavy traffic.',
+        travelWhy: isElevated
+          ? 'Stepping one or two streets off main roads sharply reduces direct tailpipe NO₂ and soot inhalation.'
+          : 'Active travel produces zero tailpipe pollution while giving you cleaner air away from busy intersections.',
+      };
+    case 'private_vehicle':
+      return {
+        travel:
+          'Combine errands into one trip, turn off your engine at long signals, or take metro, bus, or carpool to cut neighborhood emissions.',
+        travelWhy:
+          'Avoiding cold starts, idling, and solo trips lowers both fuel cost and roadside NO₂/PM2.5 buildup.',
+      };
+    case 'public_transport':
+      return {
+        travel:
+          severityLevel >= 4
+            ? 'Public transit lowers street pollution—travel just outside peak rush hours if flexible and wait back from idling tailpipes.'
+            : 'Using metro, buses, or trains keeps neighborhood emissions lower than solo driving—keep choosing shaded or quieter stops.',
+        travelWhy:
+          'Shared transit moves many commuters per vehicle, slashing per-person tailpipe emissions across the city.',
+      };
+    default:
+      return {
+        travel: isElevated
+          ? 'Combine errands, pick lower-traffic routes, and choose metro, bus, or carpooling to cut both personal exposure and emissions.'
+          : 'Walk or cycle for short neighborhood trips and use public transit or carpooling for longer journeys.',
+        travelWhy:
+          'Matching short zero-emission trips with shared transit reduces both your inhaled traffic dose and local air pollution.',
+      };
+  }
+}
+
 export function buildBaselineAdvice(
   aqiData: AirQualityData,
   prefs: Pick<UserPreferences, 'planningFor' | 'commuteMethod'>,
@@ -420,133 +605,16 @@ export function buildBaselineAdvice(
     ? `elevated ${dominantPollutant}`
     : 'airborne particles';
 
-  let outdoor = '';
-  let outdoorWhy = '';
-
-  if (severityLevel <= 2) {
-    if (prefs.planningFor === 'young_children') {
-      outdoor =
-        'Good window for outdoor playground time and sports; keep water handy and stick to grassy parks away from road traffic.';
-      outdoorWhy =
-        'Developing lungs breathe faster per kilogram of body weight, so low AQI parks keep fine-particle inhalation low.';
-    } else if (prefs.planningFor === 'senior_citizens') {
-      outdoor =
-        'Comfortable conditions for a morning or evening walk at an easy pace in shaded neighborhood spaces.';
-      outdoorWhy =
-        'Cleaner air reduces airway irritation and cardiovascular strain during light outdoor movement.';
-    } else if (prefs.planningFor === 'sensitive') {
-      outdoor =
-        'Normal outdoor walks and gentle activity are fine today while watching for any personal airway discomfort.';
-      outdoorWhy =
-        'Current pollution is below stress thresholds for most people, though pacing helps sensitive airways stay calm.';
-    } else if (prefs.planningFor === 'working_professional') {
-      outdoor =
-        'Favorable conditions for a midday stretch walk or outdoor lunch break away from main intersections.';
-      outdoorWhy =
-        'Brief daylight movement boosts focus while low ambient pollution keeps exposure minimal.';
-    } else {
-      outdoor =
-        'Conditions are favorable for outdoor walks, family play, and exercise today.';
-      outdoorWhy =
-        'Ambient pollutant levels are low enough that outdoor activity brings full physical benefits without heavy exposure.';
-    }
-  } else if (severityLevel === 3) {
-    if (prefs.planningFor === 'young_children') {
-      outdoor =
-        'Keep outdoor play shorter today and shift energetic running or sports indoors or to quieter, tree-lined parks.';
-      outdoorWhy = `Children inhale more ${pollutantNote} when breathing rapidly during active play, irritating developing airways.`;
-    } else if (prefs.planningFor === 'senior_citizens') {
-      outdoor =
-        'Take shorter, gentle walks away from busy roads and rest indoors if you notice throat tightness or fatigue.';
-      outdoorWhy = `Moderate ${pollutantNote} can trigger mild airway inflammation and extra heart-lung effort in older adults.`;
-    } else if (prefs.planningFor === 'sensitive') {
-      outdoor =
-        'Limit prolonged outdoor exertion today, carry prescribed reliever inhalers if used, and avoid smoky roadside areas.';
-      outdoorWhy = `Even moderate levels of ${pollutantNote} can irritate sensitive bronchial passages during deeper breathing.`;
-    } else if (prefs.planningFor === 'working_professional') {
-      outdoor =
-        'Keep outdoor workouts light or move intense gym sessions indoors after work until traffic haze clears.';
-      outdoorWhy = `Heavy breathing during rush-hour exertion draws ${pollutantNote} deeper into the lungs.`;
-    } else if (prefs.planningFor === 'family') {
-      outdoor =
-        'Light outdoor errands are fine, but shift intense workouts or long playtimes indoors or to quieter streets.';
-      outdoorWhy = `Lower breathing rates cut the total dose of ${pollutantNote} inhaled by kids and adults alike.`;
-    } else {
-      outdoor =
-        'Light outdoor activity is fine, though scaling back long, intense workouts helps reduce exposure.';
-      outdoorWhy = `Slower breathing during lighter movement limits how deeply ${pollutantNote} settles in your airways.`;
-    }
-  } else if (severityLevel === 4) {
-    if (prefs.planningFor === 'young_children') {
-      outdoor =
-        'Move children’s games and sports indoors today and keep outdoor school or errand transitions brief.';
-      outdoorWhy = `Elevated ${pollutantNote} quickly inflames children’s narrower airways when they run and breathe deeply.`;
-    } else if (prefs.planningFor === 'senior_citizens') {
-      outdoor =
-        'Stay indoors during peak haze and postpone long walks; use a well-fitted N95 mask for essential errands.';
-      outdoorWhy = `High ${pollutantNote} enters the bloodstream via the lungs, increasing respiratory and blood-pressure stress.`;
-    } else {
-      outdoor =
-        'Outdoor pollution is elevated. Move vigorous exercise indoors and keep outdoor trips brief when practical.';
-      outdoorWhy = `High concentrations of ${pollutantNote} cause airway irritation for healthy adults during prolonged outdoor exposure.`;
-    }
-  } else {
-    outdoor =
-      'Air quality is very poor. Stay indoors as much as possible, cancel outdoor exercise, and wear a well-fitted N95/KN95 mask if going out.';
-    outdoorWhy = `Severe ${pollutantNote} levels penetrate deep lung tissue; N95 filtration and indoor shelter sharply reduce particle inhalation.`;
-  }
-
-  let indoor = '';
-  let indoorWhy = '';
-  if (severityLevel <= 2) {
-    indoor =
-      'Open windows for cross-ventilation during calmer midday hours, use kitchen exhaust fans while cooking, and keep low-maintenance indoor plants like snake plant or areca palm.';
-    indoorWhy =
-      'Fresh outdoor air dilutes indoor CO₂ and cooking fumes, while damp dusting and greenery keep living spaces comfortable.';
-  } else if (severityLevel === 3) {
-    indoor =
-      'Run a HEPA air purifier in main rooms if available, skip incense or candles, and crack a window with the kitchen exhaust fan on while cooking.';
-    indoorWhy =
-      'HEPA filters capture fine PM2.5 particles without sealing in cooking smoke or indoor gases.';
-  } else {
-    indoor =
-      'Keep roadside windows shut during peak haze, run a HEPA purifier on medium/auto, damp-mop floors instead of dry sweeping, and vent briefly with exhaust fans while cooking.';
-    indoorWhy =
-      'Damp cleaning traps settled dust without re-aerosolizing it, while HEPA filtration removes outdoor PM2.5 that seeps indoors.';
-  }
-
-  let travel = '';
-  let travelWhy = '';
-  if (prefs.commuteMethod === 'walk_cycle') {
-    travel =
-      severityLevel >= 3
-        ? 'Choose quieter side streets or park paths away from main road exhaust, or switch to metro/bus for longer stretches today.'
-        : 'Walking and cycling are zero-emission choices today—stick to greener neighborhood streets away from heavy traffic.';
-    travelWhy =
-      severityLevel >= 3
-        ? 'Stepping one or two streets off main roads sharply reduces direct tailpipe NO₂ and soot inhalation.'
-        : 'Active travel produces zero tailpipe pollution while giving you cleaner air away from busy intersections.';
-  } else if (prefs.commuteMethod === 'private_vehicle') {
-    travel =
-      'Combine errands into one trip, turn off your engine at long signals, or take metro, bus, or carpool to cut neighborhood emissions.';
-    travelWhy =
-      'Avoiding cold starts, idling, and solo trips lowers both fuel cost and roadside NO₂/PM2.5 buildup.';
-  } else if (prefs.commuteMethod === 'public_transport') {
-    travel =
-      severityLevel >= 4
-        ? 'Public transit lowers street pollution—travel just outside peak rush hours if flexible and wait back from idling tailpipes.'
-        : 'Using metro, buses, or trains keeps neighborhood emissions lower than solo driving—keep choosing shaded or quieter stops.';
-    travelWhy =
-      'Shared transit moves many commuters per vehicle, slashing per-person tailpipe emissions across the city.';
-  } else {
-    travel =
-      severityLevel >= 3
-        ? 'Combine errands, pick lower-traffic routes, and choose metro, bus, or carpooling to cut both personal exposure and emissions.'
-        : 'Walk or cycle for short neighborhood trips and use public transit or carpooling for longer journeys.';
-    travelWhy =
-      'Matching short zero-emission trips with shared transit reduces both your inhaled traffic dose and local air pollution.';
-  }
-
+  const { outdoor, outdoorWhy } = getOutdoorBaseline(
+    severityLevel,
+    prefs.planningFor,
+    pollutantNote,
+  );
+  const { indoor, indoorWhy } = getIndoorBaseline(severityLevel);
+  const { travel, travelWhy } = getTravelBaseline(
+    severityLevel,
+    prefs.commuteMethod,
+  );
   const summary = `In ${aqiData.city.name}, the ${aqiData.scale === 'india' ? 'India National AQI' : 'US EPA AQI'} is ${aqiData.aqi} (${aqiData.categoryLabel}). ${aqiData.explanation}`;
 
   return {

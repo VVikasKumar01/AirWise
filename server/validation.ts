@@ -1,5 +1,6 @@
 import { DEFAULT_SAMPLE_CITY } from '../src/shared/aqi.ts';
 import { LIMITS, normalizePlanningGroup } from '../src/shared/constants.ts';
+import { isSafeHttpUrl } from '../src/shared/text.ts';
 import type {
   AirQualityData,
   AqiScale,
@@ -49,12 +50,18 @@ export function sanitizeMultilineText(input: unknown, maxLen: number): string {
     .slice(0, maxLen);
 }
 
+function toStrictFiniteNumber(raw: unknown): number {
+  if (typeof raw === 'number') return raw;
+  if (typeof raw === 'string' && raw.trim() !== '') return Number(raw);
+  return Number.NaN;
+}
+
 export function parseCoordinates(
   rawLat: unknown,
   rawLon: unknown,
 ): { ok: true; lat: number; lon: number } | { ok: false; error: string } {
-  const lat = Number(rawLat);
-  const lon = Number(rawLon);
+  const lat = toStrictFiniteNumber(rawLat);
+  const lon = toStrictFiniteNumber(rawLon);
   if (
     !Number.isFinite(lat) ||
     !Number.isFinite(lon) ||
@@ -244,17 +251,7 @@ export function sanitizeRecentActions(raw: unknown): string[] {
     .filter((s) => s.length > 0);
 }
 
-export function isSafeHttpUrl(raw: unknown): raw is string {
-  if (typeof raw !== 'string') return false;
-  const trimmed = raw.trim();
-  if (!trimmed) return false;
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-  } catch {
-    return false;
-  }
-}
+export { isSafeHttpUrl };
 
 const ALLOWED_AUDIO_MIME_TYPES = new Set([
   'audio/webm',

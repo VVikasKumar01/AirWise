@@ -7,6 +7,7 @@ import type {
   GroundedPlace,
   UserPreferences,
 } from '../src/shared/types.ts';
+import { cleanChatFormatting } from '../src/shared/text.ts';
 import { TtlCache } from './cache.ts';
 import { isSafeHttpUrl } from './validation.ts';
 
@@ -21,11 +22,16 @@ const adviceCache = new TtlCache<AdviceRecommendations>(300, ADVICE_CACHE_TTL_MS
 const pendingAdvice = new Map<string, Promise<AdviceRecommendations>>();
 let adviceCooldownUntilMs = 0;
 
-export function getGeminiClient(): GoogleGenAI | null {
+export function isGeminiConfigured(): boolean {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+  return Boolean(apiKey && apiKey !== 'MY_GEMINI_API_KEY');
+}
+
+export function getGeminiClient(): GoogleGenAI | null {
+  if (!isGeminiConfigured()) {
     return null;
   }
+  const apiKey = process.env.GEMINI_API_KEY!.trim();
   return new GoogleGenAI({
     apiKey,
     httpOptions: {
@@ -421,48 +427,7 @@ Rules:
   return task;
 }
 
-export function cleanChatFormatting(raw: string): string {
-  const lines = raw.replace(/\r\n/g, '\n').split('\n');
-  const cleanedLines: string[] = [];
-
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) {
-      if (cleanedLines.length > 0 && cleanedLines[cleanedLines.length - 1] !== '') {
-        cleanedLines.push('');
-      }
-      continue;
-    }
-
-    // Remove markdown horizontal dividers (---, ***, ___)
-    if (/^([-*_])\1{2,}$/.test(trimmed)) {
-      continue;
-    }
-
-    let line = trimmed;
-
-    // Strip markdown heading markers (#, ##, ###)
-    line = line.replace(/^#{1,6}\s+/, '');
-
-    // Normalize bullet markers (*, •, +) to simple hyphen bullets
-    line = line.replace(/^[*•+]\s+/, '- ');
-
-    // Remove bold/italic/code wrapper symbols while keeping readable text
-    line = line
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1')
-      .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,!?:;)]|$)/g, '$1$2')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\s{2,}/g, ' ')
-      .trim();
-
-    if (line) {
-      cleanedLines.push(line);
-    }
-  }
-
-  return cleanedLines.join('\n').trim();
-}
+export { cleanChatFormatting };
 
 const MAPS_INTENT_REGEX =
   /\b(near|nearby|around|closest|nearest|park|parks|garden|metro|subway|station|bus|transit|route|routes|walk|walking|cycle|cycling|indoor spot|indoor space|library|libraries|mall|malls|community center|museum|cafe|where|directions|commute|traffic|spot|spots|place|places|play outside|playground)\b/i;

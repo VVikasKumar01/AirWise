@@ -31,6 +31,26 @@ const QUICK_ACTIONS = [
   'Turned off vehicle engine instead of idling.',
 ];
 
+const FACTOR_FIELDS: Array<{
+  key: keyof Pick<
+    EmissionFactors,
+    'privateCarGPerKm' | 'twoWheelerGPerKm' | 'publicTransitGPerKm' | 'carpoolGPerKm'
+  >;
+  label: string;
+}> = [
+  { key: 'privateCarGPerKm', label: 'Private car (g/km)' },
+  { key: 'twoWheelerGPerKm', label: 'Two-wheeler (g/km)' },
+  { key: 'publicTransitGPerKm', label: 'Public transit (g/km)' },
+  { key: 'carpoolGPerKm', label: 'Carpool (g/km)' },
+];
+
+function createActionId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function formatActionDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Today';
@@ -112,7 +132,7 @@ export function ImpactPage({
       replacedMode === 'privateCar' ? 'driving alone' : 'riding a two-wheeler';
 
     onAddAction({
-      id: `trip-${Date.now()}`,
+      id: createActionId('trip'),
       description: `Travelled ${parsedDistance} km: ${chosenLabel} instead of ${replacedLabel}.`,
       type: 'trip',
       co2AvoidedKg: estimatedSavingsKg,
@@ -129,7 +149,7 @@ export function ImpactPage({
     const trimmed = description.trim().slice(0, LIMITS.MAX_ACTION_TEXT_CHARS);
     if (!trimmed) return;
     onAddAction({
-      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: createActionId('act'),
       description: trimmed,
       type: 'action',
       co2AvoidedKg: 0,
@@ -403,80 +423,25 @@ export function ImpactPage({
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <label className="block space-y-1">
-                  <span className="block font-medium text-[#1F2937]">
-                    Private car (g/km)
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={emissionFactors.privateCarGPerKm}
-                    onChange={(e) =>
-                      onUpdateFactors({
-                        ...emissionFactors,
-                        privateCarGPerKm: Math.max(0, Number(e.target.value) || 0),
-                      })
-                    }
-                    className="w-full min-h-[44px] px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white tabular-nums text-[#1F2937]"
-                  />
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="block font-medium text-[#1F2937]">
-                    Two-wheeler (g/km)
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={emissionFactors.twoWheelerGPerKm}
-                    onChange={(e) =>
-                      onUpdateFactors({
-                        ...emissionFactors,
-                        twoWheelerGPerKm: Math.max(0, Number(e.target.value) || 0),
-                      })
-                    }
-                    className="w-full min-h-[44px] px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white tabular-nums text-[#1F2937]"
-                  />
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="block font-medium text-[#1F2937]">
-                    Public transit (g/km)
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={emissionFactors.publicTransitGPerKm}
-                    onChange={(e) =>
-                      onUpdateFactors({
-                        ...emissionFactors,
-                        publicTransitGPerKm: Math.max(
-                          0,
-                          Number(e.target.value) || 0,
-                        ),
-                      })
-                    }
-                    className="w-full min-h-[44px] px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white tabular-nums text-[#1F2937]"
-                  />
-                </label>
-
-                <label className="block space-y-1">
-                  <span className="block font-medium text-[#1F2937]">
-                    Carpool (g/km)
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={emissionFactors.carpoolGPerKm}
-                    onChange={(e) =>
-                      onUpdateFactors({
-                        ...emissionFactors,
-                        carpoolGPerKm: Math.max(0, Number(e.target.value) || 0),
-                      })
-                    }
-                    className="w-full min-h-[44px] px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white tabular-nums text-[#1F2937]"
-                  />
-                </label>
+                {FACTOR_FIELDS.map(({ key, label }) => (
+                  <label key={key} className="block space-y-1">
+                    <span className="block font-medium text-[#1F2937]">
+                      {label}
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={emissionFactors[key]}
+                      onChange={(e) =>
+                        onUpdateFactors({
+                          ...emissionFactors,
+                          [key]: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                      className="w-full min-h-[44px] px-2.5 py-1 rounded-lg border border-[#E5E7EB] bg-white tabular-nums text-[#1F2937]"
+                    />
+                  </label>
+                ))}
               </div>
 
               <button

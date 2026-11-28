@@ -15,6 +15,7 @@ import {
   LIMITS,
   SUGGESTED_QUESTIONS,
 } from '../shared/constants.ts';
+import { isSafeHttpUrl, stripInlineMarkdown } from '../shared/text.ts';
 import type {
   AirQualityData,
   ChatMessage,
@@ -31,22 +32,11 @@ interface AssistantPageProps {
   onMessagesChange: (next: ChatMessage[]) => void;
 }
 
-function stripInlineSymbols(segment: string): string {
-  return segment
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,!?:;)]|$)/g, '$1$2')
-    .replace(/`([^`]+)`/g, '$1')
-    .trim();
-}
-
-function isSafeExternalUrl(raw: string): boolean {
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-  } catch {
-    return false;
+function createMessageId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}-${crypto.randomUUID()}`;
   }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function renderFormattedText(text: string) {
@@ -60,7 +50,7 @@ function renderFormattedText(text: string) {
     const cleanLine = line.replace(/^#{1,6}\s+/, '');
     const bulletMatch = cleanLine.match(/^[-*•+]\s+(.*)$/);
     if (bulletMatch) {
-      const content = stripInlineSymbols(bulletMatch[1]);
+      const content = stripInlineMarkdown(bulletMatch[1]);
       if (!content) continue;
       const last = blocks[blocks.length - 1];
       if (last && last.type === 'ul') {
@@ -69,7 +59,7 @@ function renderFormattedText(text: string) {
         blocks.push({ type: 'ul', items: [content] });
       }
     } else {
-      const content = stripInlineSymbols(cleanLine);
+      const content = stripInlineMarkdown(cleanLine);
       if (content) {
         blocks.push({ type: 'p', items: [content] });
       }
@@ -143,6 +133,7 @@ export function AssistantPage({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     const prefersReducedMotion =
@@ -319,6 +310,7 @@ export function AssistantPage({
     historyForApi: ChatMessage[],
     baseMessages: ChatMessage[],
   ) => {
+    sendingRef.current = true;
     setSending(true);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 35000);
@@ -361,11 +353,11 @@ export function AssistantPage({
       }
 
       const validPlaces = Array.isArray(data.places)
-        ? data.places.filter((p) => p && isSafeExternalUrl(p.uri))
+        ? data.places.filter((p) => p && isSafeHttpUrl(p.uri))
         : [];
 
       const aiMsg: ChatMessage = {
-        id: `a-${Date.now()}`,
+        id: createMessageId('a'),
         role: 'assistant',
         text: data.reply,
         timestamp: new Date().toISOString(),
@@ -380,7 +372,7 @@ export function AssistantPage({
             ? err.message
             : 'Could not reach AirWise AI right now.';
       const errMsg: ChatMessage = {
-        id: `e-${Date.now()}`,
+        id: createMessageId('e'),
         role: 'assistant',
         text: errText,
         timestamp: new Date().toISOString(),
@@ -389,16 +381,17 @@ export function AssistantPage({
       onMessagesChange([...baseMessages, errMsg]);
     } finally {
       clearTimeout(timeout);
+      sendingRef.current = false;
       setSending(false);
     }
   };
 
   const sendMessage = async (rawText: string) => {
     const trimmed = rawText.trim().slice(0, LIMITS.MAX_CHAT_MESSAGE_CHARS);
-    if (!trimmed || sending) return;
+    if (!trimmed || sendingRef.current || sending) return;
 
     const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
+      id: createMessageId('u'),
       role: 'user',
       text: trimmed,
       timestamp: new Date().toISOString(),
@@ -411,7 +404,7 @@ export function AssistantPage({
   };
 
   const handleRetryError = async (errorMsgIndex: number) => {
-    if (sending) return;
+    if (sendingRef.current || sending) return;
     let precedingUserText = '';
     let userMsgIndex = -1;
     for (let i = errorMsgIndex - 1; i >= 0; i--) {
@@ -550,7 +543,7 @@ export function AssistantPage({
                           </div>
                           <ul className="space-y-1.5">
                             {msg.places
-                              .filter((place) => isSafeExternalUrl(place.uri))
+                              .filter((place) => isSafeHttpUrl(place.uri))
                               .map((place) => (
                                 <li key={place.uri}>
                                   <a

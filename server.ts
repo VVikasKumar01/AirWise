@@ -14,6 +14,9 @@ async function startServer() {
 
   if (process.env.NODE_ENV === 'production') {
     const distDir = path.resolve(__dirname, 'dist');
+    app.use('/api', (_req, res) => {
+      res.status(404).json({ error: 'API route not found.' });
+    });
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
