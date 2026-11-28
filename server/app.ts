@@ -14,6 +14,8 @@ import {
   transcribeAudio,
 } from './geminiService.ts';
 import { createRateLimiter, securityHeaders } from './security.ts';
+import { asyncHandler } from './asyncHandler.ts';
+import { apiErrorHandler } from './errorHandler.ts';
 import {
   parseCoordinates,
   sanitizeAirQualityData,
@@ -60,7 +62,7 @@ export function createApp(options: CreateAppOptions = {}) {
     '/api/transcribe',
     aiLimiter,
     express.json({ limit: '2.5mb' }),
-    async (req, res) => {
+    asyncHandler(async (req, res) => {
       const validated = sanitizeAudioPayload(req.body);
       if (!validated.ok) {
         res.status(400).json({ error: validated.error });
@@ -78,7 +80,7 @@ export function createApp(options: CreateAppOptions = {}) {
       }
 
       res.json(result);
-    },
+    }),
   );
 
   app.use(express.json({ limit: '100kb' }));
@@ -87,66 +89,78 @@ export function createApp(options: CreateAppOptions = {}) {
     res.json({ ok: true, geminiConfigured: isGeminiConfigured() });
   });
 
-  app.get('/api/cities/search', standardLimiter, async (req, res) => {
-    const query = sanitizePlainText(req.query.q, LIMITS.MAX_CITY_QUERY_CHARS);
-    if (!query) {
-      res.json({ cities: POPULAR_CITIES });
-      return;
-    }
+  app.get(
+    '/api/cities/search',
+    standardLimiter,
+    asyncHandler(async (req, res) => {
+      const query = sanitizePlainText(req.query.q, LIMITS.MAX_CITY_QUERY_CHARS);
+      if (!query) {
+        res.json({ cities: POPULAR_CITIES });
+        return;
+      }
 
-    const result = await searchCities(query);
-    res.json(result);
-  });
+      const result = await searchCities(query);
+      res.json(result);
+    }),
+  );
 
-  app.get('/api/cities/reverse', standardLimiter, async (req, res) => {
-    const parsed = parseCoordinates(req.query.lat, req.query.lon);
-    if (!parsed.ok) {
-      res.status(400).json({ error: parsed.error });
-      return;
-    }
+  app.get(
+    '/api/cities/reverse',
+    standardLimiter,
+    asyncHandler(async (req, res) => {
+      const parsed = parseCoordinates(req.query.lat, req.query.lon);
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
 
-    const city = await reverseGeocode(parsed.lat, parsed.lon);
-    res.json({ city });
-  });
+      const city = await reverseGeocode(parsed.lat, parsed.lon);
+      res.json({ city });
+    }),
+  );
 
-  app.get('/api/aqi', standardLimiter, async (req, res) => {
-    const validated = validateAqiQuery(req.query as Record<string, unknown>);
-    if (!validated.ok) {
-      res.status(400).json({ error: validated.error });
-      return;
-    }
+  app.get(
+    '/api/aqi',
+    standardLimiter,
+    asyncHandler(async (req, res) => {
+      const validated = validateAqiQuery(req.query as Record<string, unknown>);
+      if (!validated.ok) {
+        res.status(400).json({ error: validated.error });
+        return;
+      }
 
-    const { city, scale, demo } = validated;
+      const { city, scale, demo } = validated;
 
-    if (demo) {
-      res.json(
-        buildDemoAirQuality(
-          city,
-          scale,
-          'Demo Mode is active. Values below are sample figures for exploring AirWise, not live station readings.',
-        ),
-      );
-      return;
-    }
+      if (demo) {
+        res.json(
+          buildDemoAirQuality(
+            city,
+            scale,
+            'Demo Mode is active. Values below are sample figures for exploring AirWise, not live station readings.',
+          ),
+        );
+        return;
+      }
 
-    try {
-      const entry = await fetchLiveAirQuality(city.latitude, city.longitude);
-      res.json(formatAqiFromRaw(city, scale, entry));
-    } catch (err) {
-      console.error('/api/aqi upstream error:', err);
-      res.status(503).json({
-        error:
-          'Live air quality data could not be reached right now. Please try again or switch to Demo Mode to view clearly labeled sample figures.',
-        demoData: buildDemoAirQuality(
-          city,
-          scale,
-          'Live air quality service is unreachable. Showing clearly labeled sample data.',
-        ),
-      });
-    }
-  });
+      try {
+        const entry = await fetchLiveAirQuality(city.latitude, city.longitude);
+        res.json(formatAqiFromRaw(city, scale, entry));
+      } catch (err) {
+        console.error('/api/aqi upstream error:', err);
+        res.status(503).json({
+          error:
+            'Live air quality data could not be reached right now. Please try again or switch to Demo Mode to view clearly labeled sample figures.',
+          demoData: buildDemoAirQuality(
+            city,
+            scale,
+            'Live air quality service is unreachable. Showing clearly labeled sample data.',
+          ),
+        });
+      }
+    }),
+  );
 
-  app.post('/api/advice', aiLimiter, async (req, res) => {
+  app.post('/api/advice', aiLimiter, asyncHandler(async (req, res) => {
     const body = req.body as Record<string, unknown> | undefined;
     const aqiData = sanitizeAirQualityData(body?.aqiData);
     const preferences = sanitizePreferences(body?.preferences);
@@ -160,9 +174,9 @@ export function createApp(options: CreateAppOptions = {}) {
 
     const result = await generatePersonalizedAdvice(aqiData, preferences);
     res.json(result);
-  });
+  }));
 
-  app.post('/api/chat', aiLimiter, async (req, res) => {
+  app.post('/api/chat', aiLimiter, asyncHandler(async (req, res) => {
     const body = req.body as Record<string, unknown> | undefined;
     const rawMsg = typeof body?.message === 'string' ? body.message : '';
     const trimmed = sanitizeMultilineText(rawMsg, LIMITS.MAX_CHAT_MESSAGE_CHARS);
@@ -198,33 +212,10 @@ export function createApp(options: CreateAppOptions = {}) {
     }
 
     res.json(result);
-  });
+  }));
 
-  // Safe JSON parse & payload limit error handler
-  app.use(
-    (
-      err: unknown,
-      _req: express.Request,
-      res: express.Response,
-      next: express.NextFunction,
-    ) => {
-      if (
-        err &&
-        typeof err === 'object' &&
-        (err as { type?: string }).type === 'entity.too.large'
-      ) {
-        res.status(413).json({
-          error: 'Request payload is too large. Please keep voice clips under 45 seconds.',
-        });
-        return;
-      }
-      if (err instanceof SyntaxError && 'body' in err) {
-        res.status(400).json({ error: 'Invalid JSON request body.' });
-        return;
-      }
-      next(err);
-    },
-  );
+  // Keep parser and async route failures in one safe JSON error path.
+  app.use(apiErrorHandler);
 
   return app;
 }

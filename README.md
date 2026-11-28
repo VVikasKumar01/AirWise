@@ -119,6 +119,7 @@ NODE_ENV=production npm start
 ```bash
 npm run lint   # TypeScript type check
 npm test       # Run unit & API integration tests
+npm run test:coverage # Run tests with Node's built-in coverage summary
 ```
 
 ---

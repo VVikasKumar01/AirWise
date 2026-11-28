@@ -10,12 +10,13 @@ import {
   RotateCcw,
   Square,
 } from 'lucide-react';
+import { AssistantFormattedText } from './AssistantFormattedText.tsx';
 import {
   IMAGE_ASSETS,
   LIMITS,
   SUGGESTED_QUESTIONS,
 } from '../shared/constants.ts';
-import { isSafeHttpUrl, stripInlineMarkdown } from '../shared/text.ts';
+import { isSafeHttpUrl } from '../shared/text.ts';
 import type {
   AirQualityData,
   ChatMessage,
@@ -23,6 +24,7 @@ import type {
   ImpactAction,
   UserPreferences,
 } from '../shared/types.ts';
+import { createId } from '../utils/ids.ts';
 
 interface AssistantPageProps {
   aqiData: AirQualityData | null;
@@ -30,57 +32,6 @@ interface AssistantPageProps {
   impactActions: ImpactAction[];
   messages: ChatMessage[];
   onMessagesChange: (next: ChatMessage[]) => void;
-}
-
-function createMessageId(prefix: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function renderFormattedText(text: string) {
-  const lines = text.split('\n');
-  const blocks: Array<{ type: 'p' | 'ul'; items: string[] }> = [];
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || /^([-*_])\1{2,}$/.test(line)) continue;
-
-    const cleanLine = line.replace(/^#{1,6}\s+/, '');
-    const bulletMatch = cleanLine.match(/^[-*•+]\s+(.*)$/);
-    if (bulletMatch) {
-      const content = stripInlineMarkdown(bulletMatch[1]);
-      if (!content) continue;
-      const last = blocks[blocks.length - 1];
-      if (last && last.type === 'ul') {
-        last.items.push(content);
-      } else {
-        blocks.push({ type: 'ul', items: [content] });
-      }
-    } else {
-      const content = stripInlineMarkdown(cleanLine);
-      if (content) {
-        blocks.push({ type: 'p', items: [content] });
-      }
-    }
-  }
-
-  return (
-    <div className="space-y-2 text-sm leading-relaxed text-[#1F2937]">
-      {blocks.map((block, bIdx) =>
-        block.type === 'ul' ? (
-          <ul key={bIdx} className="list-disc pl-5 space-y-1">
-            {block.items.map((item, iIdx) => (
-              <li key={iIdx}>{item}</li>
-            ))}
-          </ul>
-        ) : (
-          <p key={bIdx}>{block.items[0]}</p>
-        ),
-      )}
-    </div>
-  );
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -357,7 +308,7 @@ export function AssistantPage({
         : [];
 
       const aiMsg: ChatMessage = {
-        id: createMessageId('a'),
+        id: createId('a'),
         role: 'assistant',
         text: data.reply,
         timestamp: new Date().toISOString(),
@@ -372,7 +323,7 @@ export function AssistantPage({
             ? err.message
             : 'Could not reach AirWise AI right now.';
       const errMsg: ChatMessage = {
-        id: createMessageId('e'),
+        id: createId('e'),
         role: 'assistant',
         text: errText,
         timestamp: new Date().toISOString(),
@@ -391,7 +342,7 @@ export function AssistantPage({
     if (!trimmed || sendingRef.current || sending) return;
 
     const userMsg: ChatMessage = {
-      id: createMessageId('u'),
+      id: createId('u'),
       role: 'user',
       text: trimmed,
       timestamp: new Date().toISOString(),
@@ -535,7 +486,7 @@ export function AssistantPage({
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {renderFormattedText(msg.text)}
+                      <AssistantFormattedText text={msg.text} />
                       {msg.places && msg.places.length > 0 && (
                         <div className="pt-2.5 border-t border-[#E5E7EB] space-y-1.5">
                           <div className="text-xs font-medium text-[#4B5563]">

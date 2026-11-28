@@ -12,6 +12,7 @@ import { calculateTripCo2AvoidedKg } from '../shared/aqi.ts';
 import { LIMITS } from '../shared/constants.ts';
 import type { EmissionFactors, ImpactAction } from '../shared/types.ts';
 import { DEFAULT_EMISSION_FACTORS } from '../utils/storage.ts';
+import { createId } from '../utils/ids.ts';
 
 interface ImpactPageProps {
   actions: ImpactAction[];
@@ -43,13 +44,6 @@ const FACTOR_FIELDS: Array<{
   { key: 'publicTransitGPerKm', label: 'Public transit (g/km)' },
   { key: 'carpoolGPerKm', label: 'Carpool (g/km)' },
 ];
-
-function createActionId(prefix: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
 
 function formatActionDate(iso: string): string {
   const d = new Date(iso);
@@ -132,7 +126,7 @@ export function ImpactPage({
       replacedMode === 'privateCar' ? 'driving alone' : 'riding a two-wheeler';
 
     onAddAction({
-      id: createActionId('trip'),
+      id: createId('trip'),
       description: `Travelled ${parsedDistance} km: ${chosenLabel} instead of ${replacedLabel}.`,
       type: 'trip',
       co2AvoidedKg: estimatedSavingsKg,
@@ -149,7 +143,7 @@ export function ImpactPage({
     const trimmed = description.trim().slice(0, LIMITS.MAX_ACTION_TEXT_CHARS);
     if (!trimmed) return;
     onAddAction({
-      id: createActionId('act'),
+      id: createId('act'),
       description: trimmed,
       type: 'action',
       co2AvoidedKg: 0,
